@@ -168,7 +168,7 @@ class VSLInferenceEngine:
                 hand_present = (np.abs(lhand).sum(axis=-1) > 0) | (np.abs(rhand).sum(axis=-1) > 0)
                 hand_ratio = float(hand_present.mean())
 
-                if hand_ratio < 0.25:
+                if hand_ratio < 0.15:
                     return {
                         "is_recognized": False,
                         "recognition_status": "hands_not_detected",
@@ -185,7 +185,7 @@ class VSLInferenceEngine:
                     kp_vel[1:] = kp[1:] - kp[:-1]
 
                 hand_vel = float(np.linalg.norm(kp_vel[:, 285:411], axis=-1).mean())
-                if hand_vel < 0.05:
+                if hand_vel < 0.02:
                     return {
                         "is_recognized": False,
                         "recognition_status": "no_movement",
@@ -230,13 +230,13 @@ class VSLInferenceEngine:
                 avg_prob = float(np.mean(token_probs)) if token_probs else 0.0
                 p25_prob = float(np.percentile(token_probs, 25)) if token_probs else 0.0
 
-                # 6. Chặn Out-of-Vocabulary (chỉ chặn khi độ tự tin cả chuỗi quá thấp < 0.55)
-                if avg_prob < 0.55:
+                # 6. Chặn Out-of-Vocabulary (nới lỏng ngưỡng OOD từ 0.55 xuống 0.38 để phù hợp người thật)
+                if avg_prob < 0.38:
                     conf = round(avg_prob, 2)
                     return {
                         "is_recognized": False,
                         "recognition_status": "out_of_vocabulary",
-                        "fallback_message": "Cử chỉ chưa khớp với bộ từ điển của mô hình (độ tự tin dưới 55%). Vui lòng thực hiện lại hoặc sử dụng công cụ hỗ trợ bên dưới.",
+                        "fallback_message": "Cử chỉ chưa khớp với bộ từ điển của mô hình. Vui lòng thực hiện lại rõ ràng hơn hoặc sử dụng công cụ hỗ trợ bên dưới.",
                         "gloss_sequence": [],
                         "translation": "",
                         "confidence": conf,
@@ -246,11 +246,12 @@ class VSLInferenceEngine:
                 effective_ctc = ctc_conf if len(glosses) > 0 else avg_prob
                 confidence = round(0.4 * effective_ctc + 0.6 * avg_prob, 3)
 
-                if confidence < 0.58:
+                # Nới lỏng ngưỡng chấp nhận từ 0.58 xuống 0.40
+                if confidence < 0.40:
                     return {
                         "is_recognized": False,
                         "recognition_status": "low_confidence",
-                        "fallback_message": f"Mức độ tin cậy nhận diện thấp ({int(confidence * 100)}%). Để đảm bảo an toàn y tế, hệ thống kích hoạt phương án dự phòng. Bạn có thể làm lại hoặc dùng sơ đồ cơ thể.",
+                        "fallback_message": f"Mức độ tin cậy nhận diện thấp ({int(confidence * 100)}%). Bạn có thể làm lại hoặc dùng sơ đồ chỉ điểm bên dưới.",
                         "gloss_sequence": glosses,
                         "translation": "",
                         "confidence": confidence,
@@ -356,6 +357,63 @@ class VSLInferenceEngine:
                 "confidence": 0.0,
             }
 
+    def _crop_center_square(self, frame):
+        """
+        Cắt khung hình vuông ở chính giữa để bảo toàn tỉ lệ 1:1,
+        tránh làm bẹp ngang cơ thể và biến dạng ngón tay khi camera là 16:9 hoặc 4:3.
+        """
+        import cv2
+        h, w = frame.shape[:2]
+        min_dim = min(h, w)
+        sy = (h - min_dim) // 2
+        sx = (w - min_dim) // 2
+        cropped = frame[sy:sy + min_dim, sx:sx + min_dim]
+        return cv2.resize(cropped, (360, 360), interpolation=cv2.INTER_AREA)
+
+    def _interpolate_hands(self, frames_kp):
+        """
+        Nội suy các frame bị mất dấu bàn tay để chuỗi chuyển động liên tục,
+        tránh việc tọa độ nhảy về 0 làm vỡ vector vận tốc kp_vel.
+        """
+        import numpy as np
+        if len(frames_kp) == 0:
+            return frames_kp
+
+        kp_out = frames_kp.copy()
+        T = len(kp_out)
+
+        # 2 bàn tay: Left hand (285:348) và Right hand (348:411)
+        for (start_idx, end_idx) in [(285, 348), (348, 411)]:
+            hand_slice = kp_out[:, start_idx:end_idx]
+            has_hand = (np.abs(hand_slice).sum(axis=-1) > 0)
+            valid_indices = np.where(has_hand)[0]
+
+            if len(valid_indices) == 0 or len(valid_indices) == T:
+                continue
+
+            for t in range(T):
+                if not has_hand[t]:
+                    prev_candidates = valid_indices[valid_indices < t]
+                    next_candidates = valid_indices[valid_indices > t]
+
+                    if len(prev_candidates) > 0 and len(next_candidates) > 0:
+                        prev_idx = prev_candidates[-1]
+                        next_idx = next_candidates[0]
+                        # Nếu khoảng trống mất tay <= 15 frames (~0.5s), nội suy tuyến tính
+                        if (next_idx - prev_idx) <= 15:
+                            alpha = (t - prev_idx) / (next_idx - prev_idx)
+                            kp_out[t, start_idx:end_idx] = (1 - alpha) * kp_out[prev_idx, start_idx:end_idx] + alpha * kp_out[next_idx, start_idx:end_idx]
+                    elif len(prev_candidates) > 0:
+                        prev_idx = prev_candidates[-1]
+                        if (t - prev_idx) <= 8:
+                            kp_out[t, start_idx:end_idx] = kp_out[prev_idx, start_idx:end_idx]
+                    elif len(next_candidates) > 0:
+                        next_idx = next_candidates[0]
+                        if (next_idx - t) <= 8:
+                            kp_out[t, start_idx:end_idx] = kp_out[next_idx, start_idx:end_idx]
+
+        return kp_out
+
     def _extract_keypoints(self, video_path: str):
         import cv2
         import numpy as np
@@ -368,12 +426,19 @@ class VSLInferenceEngine:
         cap = cv2.VideoCapture(str(video_path))
         frames = []
         with mp_lib.solutions.holistic.Holistic(
-            static_image_mode=False, model_complexity=1, smooth_landmarks=True
+            static_image_mode=False,
+            model_complexity=1,
+            smooth_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
         ) as holistic:
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret: break
-                rgb = cv2.cvtColor(cv2.resize(frame, (360, 360)), cv2.COLOR_BGR2RGB)
+
+                # Cắt vuông trung tâm để bảo toàn tỉ lệ 1:1 giải phẫu học
+                frame_sq = self._crop_center_square(frame)
+                rgb = cv2.cvtColor(frame_sq, cv2.COLOR_BGR2RGB)
                 res = holistic.process(rgb)
                 vec = np.zeros(TOTAL_DIM, dtype=np.float32)
                 idx = 0
@@ -398,7 +463,10 @@ class VSLInferenceEngine:
                         idx += 3
                 frames.append(vec)
         cap.release()
-        return np.array(frames, dtype=np.float32)
+
+        raw_arr = np.array(frames, dtype=np.float32)
+        # Bù đắp nội suy các frame mất tay để chuỗi chuyển động liên tục
+        return self._interpolate_hands(raw_arr)
 
     def _normalize_skeleton(self, kp):
         import numpy as np
