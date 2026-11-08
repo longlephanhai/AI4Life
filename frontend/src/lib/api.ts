@@ -5,6 +5,7 @@ import type {
   HealthResponse,
   QueueResponse,
   RecognizeResponse,
+  SampleKeypointsResponse,
   SampleScenario,
   SemanticFrame,
 } from "@/lib/types"
@@ -27,6 +28,12 @@ export const api = {
 
   getScenarios(): Promise<SampleScenario[]> {
     return requestJson<SampleScenario[]>("/api/sample-scenarios")
+  },
+
+  getSampleKeypoints(sampleId: string): Promise<SampleKeypointsResponse> {
+    return requestJson<SampleKeypointsResponse>(
+      `/api/sample-keypoints/${encodeURIComponent(sampleId)}`,
+    )
   },
 
   parseSemantic(payload: {

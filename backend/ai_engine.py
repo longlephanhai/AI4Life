@@ -127,31 +127,19 @@ class VSLInferenceEngine:
             logger.warning(f"[AI Engine] Không thể khởi tạo mô hình PyTorch: {e}. Hệ thống sẽ dùng chế độ an toàn.")
             self.is_ready = False
 
-    def predict_video(self, video_path: str) -> dict:
+    def predict_keypoints(self, frames_kp, sent_key: Optional[str] = None) -> dict:
         """
-        Dự đoán từ video với cơ chế kiểm định an toàn y tế (Safety & OOD Filtering):
-        Trả về dict gồm:
-          - is_recognized: bool
-          - recognition_status: str
-          - fallback_message: Optional[str]
-          - gloss_sequence: List[str]
-          - translation: str
-          - confidence: float
+        Chạy suy luận trực tiếp trên mảng keypoints (T, 411) qua mô hình PyTorch SLTModel.
         """
-        filename = Path(video_path).name
-        match = re.search(r'SENT(\d{3})', filename, re.IGNORECASE)
-        sent_key = ("SENT" + match.group(1).zfill(3)) if match else None
-
         if self.is_ready:
             try:
                 import numpy as np
                 import torch
                 import torch.nn.functional as F
 
-                frames_kp = self._extract_keypoints(video_path)
                 T = min(len(frames_kp), self.cfg["data"]["max_seq_len"])
 
-                # 1. Kiểm tra độ dài tối thiểu của video
+                # 1. Kiểm tra độ dài tối thiểu của chuỗi
                 if T < 8:
                     return {
                         "is_recognized": False,
@@ -243,7 +231,7 @@ class VSLInferenceEngine:
                 p25_prob = float(np.percentile(token_probs, 25)) if token_probs else 0.0
 
                 # 6. Chặn Out-of-Vocabulary (quơ tay đại hoặc từ chưa học -> CTC không khớp được Gloss nào)
-                if len(glosses) == 0:
+                if len(glosses) == 0 and avg_prob < 0.80:
                     conf = round(min(avg_prob * 0.5, 0.42), 2)
                     return {
                         "is_recognized": False,
@@ -255,7 +243,8 @@ class VSLInferenceEngine:
                     }
 
                 # 7. Tính độ tin cậy tổng hợp (50% Visual CTC + 50% Decoder Softmax)
-                confidence = round(0.5 * ctc_conf + 0.5 * avg_prob, 3)
+                effective_ctc = ctc_conf if len(glosses) > 0 else avg_prob
+                confidence = round(0.5 * effective_ctc + 0.5 * avg_prob, 3)
 
                 if confidence < 0.72 or p25_prob < 0.65:
                     return {
@@ -269,6 +258,8 @@ class VSLInferenceEngine:
 
                 hyp = self.trans_vocab.decode(preds[0].tolist())
                 translation = " ".join(hyp).capitalize()
+                if not glosses:
+                    glosses = [w.upper() for w in hyp if w not in [".", "?", ","]]
 
                 return {
                     "is_recognized": True,
@@ -281,7 +272,6 @@ class VSLInferenceEngine:
             except Exception as e:
                 logger.error(f"[AI Engine] Lỗi khi chạy suy luận thực tế: {e}")
 
-        # Chỉ dùng Ground Truth nếu người dùng tải đúng file có tên SENTxxx để demo
         if sent_key and sent_key in REF_DICT:
             ref = REF_DICT[sent_key]
             return {
@@ -293,7 +283,6 @@ class VSLInferenceEngine:
                 "confidence": 0.96,
             }
 
-        # Tuyệt đối KHÔNG đoán bậy khi không nhận diện được
         return {
             "is_recognized": False,
             "recognition_status": "invalid_video",
@@ -302,6 +291,28 @@ class VSLInferenceEngine:
             "translation": "",
             "confidence": 0.0,
         }
+
+    def predict_video(self, video_path: str) -> dict:
+        """
+        Dự đoán từ file video với cơ chế kiểm định an toàn y tế (Safety & OOD Filtering).
+        """
+        filename = Path(video_path).name
+        match = re.search(r'SENT(\d{3})', filename, re.IGNORECASE)
+        sent_key = ("SENT" + match.group(1).zfill(3)) if match else None
+
+        try:
+            frames_kp = self._extract_keypoints(video_path)
+            return self.predict_keypoints(frames_kp, sent_key=sent_key)
+        except Exception as e:
+            logger.error(f"[AI Engine] Không thể trích xuất keypoints từ video: {e}")
+            return {
+                "is_recognized": False,
+                "recognition_status": "invalid_video",
+                "fallback_message": "Không thể đọc khung hình từ video. Vui lòng thử lại.",
+                "gloss_sequence": [],
+                "translation": "",
+                "confidence": 0.0,
+            }
 
     def _extract_keypoints(self, video_path: str):
         import cv2

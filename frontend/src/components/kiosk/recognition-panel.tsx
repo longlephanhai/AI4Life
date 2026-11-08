@@ -24,6 +24,7 @@ export function RecognitionPanel({
   isRecognized = true,
   fallbackMessage,
 }: RecognitionPanelProps) {
+  const hasResult = Boolean(translation) || !isRecognized
   const isEmergency = frame?.intent === "emergency"
   const needsReview = frame?.needs_human_review || !isRecognized
 
@@ -45,18 +46,24 @@ export function RecognitionPanel({
                 ? "animate-ping bg-destructive"
                 : !isRecognized
                   ? "bg-warning"
-                  : "bg-primary",
+                  : hasResult
+                    ? "bg-primary"
+                    : "bg-muted-foreground/40",
             )}
           />
           <h2 className="text-base font-semibold">Kết Quả Phiên Dịch Ngôn Ngữ Ký Hiệu</h2>
         </div>
 
-        <Badge variant={isRecognized ? "success" : "destructive"} className="tabular-nums">
-          {isRecognized ? <CheckCircle2 aria-hidden /> : <ShieldAlert aria-hidden />}
-          {isRecognized
-            ? `Độ tin cậy: ${(confidence * 100).toFixed(1)}%`
-            : `Chặn đoán mò (${(confidence * 100).toFixed(0)}%)`}
-        </Badge>
+        {!hasResult ? (
+          <Badge variant="secondary">Chờ thu nhận cử chỉ</Badge>
+        ) : (
+          <Badge variant={isRecognized ? "success" : "destructive"} className="tabular-nums">
+            {isRecognized ? <CheckCircle2 aria-hidden /> : <ShieldAlert aria-hidden />}
+            {isRecognized
+              ? `Độ tin cậy: ${(confidence * 100).toFixed(1)}%`
+              : `Chặn đoán mò (${(confidence * 100).toFixed(0)}%)`}
+          </Badge>
+        )}
       </div>
 
       <div className="space-y-1">
@@ -93,16 +100,22 @@ export function RecognitionPanel({
               ? "border-destructive/40 bg-destructive/10 text-destructive"
               : !isRecognized
                 ? "border-warning/50 bg-warning/10 text-foreground"
-                : "border-primary/25 bg-accent/40 text-foreground",
+                : hasResult
+                  ? "border-primary/25 bg-accent/40 text-foreground"
+                  : "border-border bg-muted/20 text-muted-foreground",
           )}
         >
           {!isRecognized ? (
             <p className="text-sm font-medium leading-relaxed text-warning-foreground">
               ⚠️ {fallbackMessage || "Chưa nhận diện chắc chắn ký hiệu. Để đảm bảo an toàn y khoa, hệ thống không tự ý đoán nghĩa."}
             </p>
-          ) : (
+          ) : hasResult ? (
             <p className="font-display text-lg font-semibold leading-snug">
-              {translation || "Xin chào! Hãy ra ký hiệu hoặc chọn tình huống mẫu."}
+              {translation}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Chưa có kết quả. Hãy bật Camera ra ký hiệu, tải video MP4 hoặc chọn mẫu kiểm thử.
             </p>
           )}
         </div>
@@ -116,7 +129,7 @@ export function RecognitionPanel({
               Chuyên Khoa Đề Xuất
             </p>
             <p className="text-xs font-semibold">
-              {frame?.specialty ?? "Quầy Tiếp Đón Chung"}
+              {hasResult ? (frame?.specialty ?? "Quầy Tiếp Đón Chung") : "Chờ phân luồng"}
             </p>
           </div>
         </div>
@@ -125,11 +138,13 @@ export function RecognitionPanel({
           <AlertTriangle
             className={cn(
               "mt-0.5 size-4 shrink-0",
-              isEmergency
-                ? "text-destructive"
-                : needsReview
-                  ? "text-warning-foreground"
-                  : "text-success",
+              !hasResult
+                ? "text-muted-foreground"
+                : isEmergency
+                  ? "text-destructive"
+                  : needsReview
+                    ? "text-warning-foreground"
+                    : "text-success",
             )}
             aria-hidden
           />
@@ -140,16 +155,19 @@ export function RecognitionPanel({
             <p
               className={cn(
                 "text-xs font-semibold",
-                isEmergency && "text-destructive",
-                !isEmergency && needsReview && "text-warning-foreground",
-                !isEmergency && !needsReview && "text-success",
+                !hasResult && "text-muted-foreground",
+                hasResult && isEmergency && "text-destructive",
+                hasResult && !isEmergency && needsReview && "text-warning-foreground",
+                hasResult && !isEmergency && !needsReview && "text-success",
               )}
             >
-              {isEmergency
-                ? "CẤP CỨU ĐỎ (Ưu tiên tuyệt đối)"
-                : needsReview
-                  ? "Cần hỏi thêm thông tin"
-                  : "Tiếp nhận tiêu chuẩn"}
+              {!hasResult
+                ? "Chờ nhận diện"
+                : isEmergency
+                  ? "CẤP CỨU ĐỎ (Ưu tiên tuyệt đối)"
+                  : needsReview
+                    ? "Cần hỏi thêm thông tin"
+                    : "Tiếp nhận tiêu chuẩn"}
             </p>
           </div>
         </div>

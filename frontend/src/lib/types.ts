@@ -97,6 +97,24 @@ export interface SampleScenario {
   description: string
 }
 
+export interface GlossFrameBoundary {
+  gloss: string
+  start: number
+  end: number
+}
+
+export interface SampleKeypointsResponse {
+  video_id: string
+  sentence_id: string
+  num_frames: number
+  fps: number
+  ground_truth_glosses: string[]
+  ground_truth_translation: string
+  gloss_frame_boundaries: GlossFrameBoundary[]
+  frames: number[][]
+  recognition: RecognizeResponse
+}
+
 export interface HealthResponse {
   status: string
   samples_loaded: number

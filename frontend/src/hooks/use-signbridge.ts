@@ -39,6 +39,12 @@ export function useRecognizeVideo() {
   })
 }
 
+export function useSampleKeypoints() {
+  return useMutation({
+    mutationFn: (sampleId: string) => api.getSampleKeypoints(sampleId),
+  })
+}
+
 export function useConfirmCase() {
   const qc = useQueryClient()
   return useMutation({

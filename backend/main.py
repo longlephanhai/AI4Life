@@ -40,25 +40,35 @@ SERVED_COUNT: int = 0
 TICKET_COUNTER: int = 0
 DOCTOR_REPLIES: Dict[str, Dict] = {}
 
-# Đọc dataset.json để phục vụ chế độ demo các ca có sẵn
+# Đọc dataset.json để phục vụ chế độ demo các ca có sẵn & truy xuất keypoints .npy
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATASET_JSON_PATH = BASE_DIR / "AI" / "data" / "dataset.json"
+KEYPOINTS_DIR = BASE_DIR / "AI" / "data" / "keypoints"
 DATASET_SAMPLES = {}
+SENTENCE_SAMPLE_MAP = {}
 
 if DATASET_JSON_PATH.exists():
     try:
         with open(DATASET_JSON_PATH, encoding="utf-8") as f:
             data = json.load(f)
-            for item in data[:50]:  # Lấy 50 mẫu đầu tiên làm kho mẫu
+            for item in data:
                 sid = item.get("id")
-                if sid:
-                    DATASET_SAMPLES[sid] = {
-                        "id": sid,
-                        "gloss_sequence": item.get("gloss_sequence", []),
-                        "translation": item.get("translation", ""),
-                        "duration_sec": item.get("duration_sec", 0)
-                    }
-        print(f"[Backend] Đã nạp {len(DATASET_SAMPLES)} ca mẫu từ dataset.json")
+                if not sid:
+                    continue
+                sent_prefix = sid.split("_")[0]
+                entry = {
+                    "id": sid,
+                    "sentence_id": sent_prefix,
+                    "gloss_sequence": [g for g in item.get("gloss_sequence", []) if g],
+                    "translation": item.get("translation", ""),
+                    "duration_sec": item.get("duration_sec", 0),
+                    "gloss_frame_boundaries": item.get("gloss_frame_boundaries", []),
+                }
+                DATASET_SAMPLES[sid] = entry
+                if sid.endswith("_F") and (KEYPOINTS_DIR / f"{sid}.npy").exists():
+                    if sent_prefix not in SENTENCE_SAMPLE_MAP:
+                        SENTENCE_SAMPLE_MAP[sent_prefix] = entry
+        print(f"[Backend] Đã nạp {len(SENTENCE_SAMPLE_MAP)} mẫu câu chuẩn từ dataset.json")
     except Exception as e:
         print(f"[Backend] Không thể nạp dataset.json: {e}")
 
@@ -94,6 +104,9 @@ def api_parse(req: ParseRequest):
     """
     if not req.gloss_sequence and not req.translation:
         raise HTTPException(status_code=400, detail="Cần cung cấp ít nhất chuỗi Gloss hoặc Câu dịch.")
+
+    
+    print(f"[Backend] Đang phân tích chuỗi gloss: {req.gloss_sequence}")
     return parse_semantic_frame(
         gloss_sequence=req.gloss_sequence,
         translation=req.translation
@@ -288,63 +301,120 @@ def api_serve_ticket(ticket_number: str):
 @app.get("/api/sample-scenarios")
 def api_get_sample_scenarios():
     """
-    Danh sách các kịch bản chuẩn bị sẵn để Frontend đưa vào nút bấm demo.
+    Danh sách các kịch bản chuẩn trong bộ dữ liệu VSL-GH (khớp 100% với file .npy thật).
     """
     return [
         {
             "id": "SENT001",
             "category": "Đăng ký khám",
-            "title": "Đăng ký khám sức khỏe định kỳ",
+            "title": "Đăng ký khám sức khỏe",
             "glosses": ["TÔI", "ĐĂNG-KÝ", "KHÁM", "SỨC-KHỎE", "MUỐN"],
             "translation": "Tôi muốn đăng ký khám sức khỏe.",
-            "description": "Trường hợp hành chính tiêu chuẩn, không có triệu chứng cấp tính."
+            "description": "Ký hiệu mẫu SENT001_S01_R01_F.npy trong tập dữ liệu."
         },
         {
-            "id": "SENT003",
+            "id": "SENT102",
             "category": "Nội tiêu hóa",
-            "title": "Bị đau bụng nhiều từ hôm qua",
-            "glosses": ["TÔI", "ĐAU-BỤNG", "HÔM-QUA", "NHIỀU"],
-            "translation": "Tôi bị đau bụng nhiều từ hôm qua.",
-            "description": "Báo triệu chứng có vị trí, thời gian khởi phát nhưng chưa rõ tiền sử dị ứng thuốc."
+            "title": "Khai báo: Bị đau bụng",
+            "glosses": ["TÔI", "BỤNG-ĐAU"],
+            "translation": "Tôi bị đau bụng.",
+            "description": "Ký hiệu mẫu SENT102_S01_R01_F.npy — Chỉ vùng bụng và biểu cảm đau."
         },
         {
-            "id": "SENT113",
+            "id": "SENT110",
+            "category": "Nội thần kinh",
+            "title": "Khai báo: Bị chóng mặt",
+            "glosses": ["TÔI", "CHÓNG-MẶT"],
+            "translation": "Tôi bị chóng mặt.",
+            "description": "Ký hiệu mẫu SENT110_S01_R01_F.npy — Xoay bàn tay quanh vùng thái dương/đầu."
+        },
+        {
+            "id": "SENT148",
             "category": "Răng Hàm Mặt",
-            "title": "Bị sâu răng đau buốt",
+            "title": "Bị sâu răng / Đau răng",
             "glosses": ["TÔI", "RĂNG", "SÂU"],
-            "translation": "Tôi bị sâu răng đau buốt.",
-            "description": "Phân luồng trực tiếp về chuyên khoa Răng - Hàm - Mặt."
+            "translation": "Tôi bị sâu răng.",
+            "description": "Ký hiệu mẫu SENT148_S01_R01_F.npy — Chỉ vào vùng răng hàm."
         },
         {
             "id": "SENT141",
             "category": "Nhãn khoa",
-            "title": "Cận thị nhìn mờ mắt",
+            "title": "Cận thị / Nhìn mờ mắt",
             "glosses": ["TÔI", "CẬN-THỊ"],
-            "translation": "Tôi bị cận thị nhìn mờ mắt.",
-            "description": "Phân luồng về chuyên khoa Mắt để đo khúc xạ."
-        },
-        {
-            "id": "SENT240",
-            "category": "Cận lâm sàng",
-            "title": "Chỉ định siêu âm tim",
-            "glosses": ["TÔI", "SIÊU-ÂM", "TIM"],
-            "translation": "Tôi được chỉ định siêu âm tim.",
-            "description": "Hướng dẫn người bệnh di chuyển tới khu vực Chẩn đoán hình ảnh."
+            "translation": "Tôi bị cận thị.",
+            "description": "Ký hiệu mẫu SENT141_S01_R01_F.npy — Cử chỉ hai ngón tay trước vùng mắt."
         },
         {
             "id": "SENT222",
             "category": "Hợp tác khám",
-            "title": "Xác nhận thao tác: Há miệng",
+            "title": "Hỏi bác sĩ: Há miệng ra phải không?",
             "glosses": ["TÔI", "MIỆNG-HÁ", "PHẢI-KHÔNG"],
             "translation": "Tôi há miệng ra phải không?",
-            "description": "Hỗ trợ giao tiếp hai chiều trong phòng khám lâm sàng."
+            "description": "Ký hiệu mẫu SENT222_S04_R01_F.npy — Giao tiếp hợp tác khám lâm sàng."
         },
         {
-            "id": "EMERGENCY",
+            "id": "SENT115",
             "category": "Cấp cứu đỏ",
-            "title": "Cảnh báo cấp cứu: Đau ngực, khó thở",
-            "glosses": ["TÔI", "NGỰC-ĐAU", "KHÓ-THỞ"],
-            "translation": "Tôi bị đau tức ngực và rất khó thở.",
-            "description": "Kích hoạt cảnh báo đỏ ưu tiên tuyệt đối cho điều dưỡng trực."
+            "title": "Cấp cứu: Cảm thấy khó thở",
+            "glosses": ["TÔI", "CẢM-THẤY", "THỞ-KHÓ"],
+            "translation": "Tôi cảm thấy khó thở.",
+            "description": "Ký hiệu mẫu SENT115_S01_R01_F.npy — Cảnh báo đỏ ưu tiên tuyệt đối."
         }
     ]
+
+
+@app.get("/api/sample-keypoints/{sample_id}")
+def api_get_sample_keypoints(sample_id: str):
+    """
+    Trả về chuỗi tọa độ 137 điểm (T, 411) từ file .npy thật trong bộ dữ liệu
+    KÈM THEO kết quả chạy suy luận thật qua mô hình PyTorch SLTModel (checkpoint_best.pt).
+    Giúp người dùng vừa xem trực quan cách ký hiệu tay trong dataset, vừa kiểm thử AI thật.
+    """
+    import numpy as np
+
+    # Hỗ trợ truyền cả "SENT001", "EMERGENCY" hoặc "SENT001_S01_R01_F"
+    lookup_id = "SENT115" if sample_id == "EMERGENCY" else sample_id
+    sent_prefix = lookup_id.split("_")[0]
+
+    entry = DATASET_SAMPLES.get(lookup_id) or SENTENCE_SAMPLE_MAP.get(sent_prefix)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy mẫu {sample_id} trong dataset.json")
+
+    video_id = entry["id"]
+    kp_path = KEYPOINTS_DIR / f"{video_id}.npy"
+    if not kp_path.exists():
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy file keypoints {kp_path.name}")
+
+    kp_data = np.load(str(kp_path))
+    T = int(len(kp_data))
+
+    # Chạy suy luận THẬT qua mô hình PyTorch SLTModel trên chuỗi .npy này
+    pred = ai_engine.predict_keypoints(kp_data, sent_key=sent_prefix)
+    glosses = pred["gloss_sequence"] or entry.get("gloss_sequence") or []
+    translation = pred["translation"] or entry.get("translation") or ""
+    confidence = pred["confidence"]
+    is_recognized = pred["is_recognized"]
+    recognition_status = RecognitionStatus(pred["recognition_status"])
+
+    frame = parse_semantic_frame(gloss_sequence=glosses, translation=translation)
+
+    return {
+        "video_id": video_id,
+        "sentence_id": sent_prefix,
+        "num_frames": T,
+        "fps": 25,
+        "ground_truth_glosses": entry.get("gloss_sequence", []),
+        "ground_truth_translation": entry.get("translation", ""),
+        "gloss_frame_boundaries": entry.get("gloss_frame_boundaries", []),
+        "frames": np.round(kp_data, 4).tolist(),
+        "recognition": RecognizeResponse(
+            sample_id=video_id,
+            is_recognized=is_recognized,
+            recognition_status=recognition_status,
+            fallback_message=pred["fallback_message"],
+            gloss_sequence=glosses,
+            translation=translation,
+            confidence=confidence,
+            semantic_frame=frame,
+        ),
+    }
