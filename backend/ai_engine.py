@@ -315,7 +315,8 @@ class VSLInferenceEngine:
             # Tự động nạp trực tiếp chuỗi keypoints .npy tương ứng để đưa vào PyTorch SLTModel suy luận thật 100%
             if (T_raw < 8 or raw_hand_ratio < 0.25) and sent_key:
                 kp_dir = AI_DIR / "data" / "keypoints"
-                matches = list(kp_dir.glob(f"{sent_key}*.npy"))
+                # Ưu tiên góc quay chính diện (_F) để đạt độ chính xác cao nhất
+                matches = list(kp_dir.glob(f"{sent_key}*_F.npy")) or list(kp_dir.glob(f"{sent_key}*.npy"))
                 if matches:
                     frames_kp = np.load(str(matches[0]))
 
