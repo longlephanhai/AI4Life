@@ -12,7 +12,6 @@ import {
   MessageSquareHeart,
   Send,
   ThumbsUp,
-  Ticket,
   X,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
@@ -237,25 +236,10 @@ export function ConfirmationBanner({
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             aria-live="polite"
-            className="flex flex-col gap-4 rounded-2xl border border-success/40 bg-success/10 p-5 shadow-sm"
+            className="flex flex-col gap-4"
           >
-            <div className="flex items-center gap-4">
-              <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-success text-success-foreground shadow-sm">
-                <Ticket className="size-7" aria-hidden />
-              </div>
-              <div className="space-y-0.5">
-                <Badge variant="success">Đã ghi nhận vào hàng đợi</Badge>
-                <p className="font-display text-2xl font-bold tracking-tight tabular-nums">
-                  Số Thứ Tự Khám: {activeTicket}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Mời bạn quan sát màn hình hoặc chờ hướng dẫn trực tiếp từ nhân viên y tế bên dưới.
-                </p>
-              </div>
-            </div>
-
             {/* Chiều ngược: Phản hồi từ Bàn Tiếp Nhận tới Kiosk người thăm khám */}
-            {doctorReply && replyMeta && (
+            {doctorReply && replyMeta ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -484,6 +468,13 @@ export function ConfirmationBanner({
                   </div>
                 )}
               </motion.div>
+            ) : (
+              <div className="flex items-center justify-center gap-3 rounded-2xl border border-dashed border-primary/40 bg-card/60 p-5 text-center text-muted-foreground shadow-sm">
+                <span className="size-2.5 rounded-full bg-primary animate-ping" />
+                <p className="text-sm font-medium">
+                  Đang kết nối với Bàn Tiếp Nhận. Vui lòng chờ nhân viên y tế phản hồi hoặc gọi số...
+                </p>
+              </div>
             )}
           </motion.div>
         )}
