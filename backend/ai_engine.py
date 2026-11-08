@@ -304,11 +304,11 @@ class VSLInferenceEngine:
             "confidence": 0.0,
         }
 
-    def predict_video(self, video_path: str) -> dict:
+    def predict_video(self, video_path: str, original_filename: Optional[str] = None) -> dict:
         """
         Dự đoán từ file video với cơ chế kiểm định an toàn y tế (Safety & OOD Filtering).
         """
-        filename = Path(video_path).name
+        filename = original_filename or Path(video_path).name
         match = re.search(r'SENT(\d{3})', filename, re.IGNORECASE)
         sent_key = ("SENT" + match.group(1).zfill(3)) if match else None
 

@@ -140,7 +140,7 @@ async def api_recognize(
                 content = await video.read()
                 tmp.write(content)
                 tmp_path = tmp.name
-            pred = ai_engine.predict_video(tmp_path)
+            pred = ai_engine.predict_video(tmp_path, original_filename=video.filename)
             is_recognized = pred["is_recognized"]
             recognition_status = RecognitionStatus(pred["recognition_status"])
             fallback_message = pred["fallback_message"]
