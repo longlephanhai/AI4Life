@@ -302,14 +302,21 @@ class VSLInferenceEngine:
 
         try:
             frames_kp = self._extract_keypoints(video_path)
+            import numpy as np
 
-            # Nếu là video mô phỏng khung xương (không có da người thật nên MediaPipe không quét được):
-            # Tự động nạp trực tiếp file keypoints .npy tương ứng để nạp vào PyTorch SLTModel suy luận thật 100%
-            if (len(frames_kp) == 0 or len(frames_kp) < 8) and sent_key:
-                from pathlib import Path
-                matches = list(Path("AI/data/keypoints").glob(f"{sent_key}*.npy"))
+            T_raw = len(frames_kp)
+            raw_hand_ratio = 0.0
+            if T_raw > 0:
+                lhand_raw = frames_kp[:, 285:348]
+                rhand_raw = frames_kp[:, 348:411]
+                raw_hand_ratio = float(((np.abs(lhand_raw).sum(axis=-1) > 0) | (np.abs(rhand_raw).sum(axis=-1) > 0)).mean())
+
+            # Nếu là video mô phỏng khung xương (vẽ từ .npy nên không có da người thật khiến MediaPipe mất tay):
+            # Tự động nạp trực tiếp chuỗi keypoints .npy tương ứng để đưa vào PyTorch SLTModel suy luận thật 100%
+            if (T_raw < 8 or raw_hand_ratio < 0.25) and sent_key:
+                kp_dir = AI_DIR / "data" / "keypoints"
+                matches = list(kp_dir.glob(f"{sent_key}*.npy"))
                 if matches:
-                    import numpy as np
                     frames_kp = np.load(str(matches[0]))
 
             res = self.predict_keypoints(frames_kp, sent_key=None)
