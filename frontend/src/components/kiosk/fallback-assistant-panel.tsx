@@ -14,6 +14,11 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  InteractiveBodyMap,
+  BODY_REGIONS,
+  type BodyRegion,
+} from "./interactive-body-map"
 import type { RecognitionStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -28,17 +33,6 @@ interface FallbackAssistantPanelProps {
 }
 
 type FallbackTab = "body_map" | "quick_phrases" | "text_input" | "retry_guide"
-
-const BODY_LOCATIONS = [
-  { id: "head", label: "Đầu / Chóng mặt", icon: "🧠", phrase: "Tôi bị đau đầu và chóng mặt" },
-  { id: "eyes", label: "Mắt / Thị lực", icon: "👁️", phrase: "Tôi bị đau mắt và nhìn mờ" },
-  { id: "ent", label: "Tai • Mũi • Họng", icon: "👂", phrase: "Tôi bị đau họng, ù tai và nghẹt mũi" },
-  { id: "teeth", label: "Răng • Hàm", icon: "🦷", phrase: "Tôi bị đau nhức răng" },
-  { id: "chest", label: "Ngực / Khó thở", icon: "🫀", phrase: "Tôi bị đau tức ngực và khó thở" },
-  { id: "stomach", label: "Bụng / Tiêu hóa", icon: "🤢", phrase: "Tôi bị đau bụng" },
-  { id: "back", label: "Lưng / Xương khớp", icon: "🦴", phrase: "Tôi bị đau lưng và nhức mỏi khớp" },
-  { id: "allergy", label: "Da / Dị ứng", icon: "🖐️", phrase: "Tôi bị nổi mẩn ngứa dị ứng" },
-]
 
 const PAIN_LEVELS = [
   { id: "mild", label: "Nhẹ (1–3)", suffix: "mức độ nhẹ" },
@@ -102,7 +96,7 @@ export function FallbackAssistantPanel({
   onRequestHumanInterpreter,
 }: FallbackAssistantPanelProps) {
   const [activeTab, setActiveTab] = React.useState<FallbackTab>("body_map")
-  const [selectedBody, setSelectedBody] = React.useState(BODY_LOCATIONS[0])
+  const [selectedRegion, setSelectedRegion] = React.useState<BodyRegion>(BODY_REGIONS[0])
   const [selectedPain, setSelectedPain] = React.useState(PAIN_LEVELS[1])
   const [selectedOnset, setSelectedOnset] = React.useState(ONSET_TIMES[1])
   const [customText, setCustomText] = React.useState("")
@@ -114,7 +108,7 @@ export function FallbackAssistantPanel({
     }
   }, [isRecognized])
 
-  const composedBodySymptom = `${selectedBody.phrase}, ${selectedPain.suffix}, ${selectedOnset.suffix}.`
+  const composedBodySymptom = `${selectedRegion.phrase}, ${selectedPain.suffix}, ${selectedOnset.suffix}.`
 
   return (
     <Card
@@ -259,32 +253,13 @@ export function FallbackAssistantPanel({
         </div>
       )}
 
-      {/* Nội dung Phương án 2: Chọn nội dung bằng hình ảnh (Sơ đồ cơ thể + Mức độ đau + Thời gian) */}
+      {/* Nội dung Phương án 2: Chọn nội dung bằng hình ảnh (Sơ đồ cơ thể 2D Trước/Sau + Mức độ đau + Thời gian) */}
       {activeTab === "body_map" && (
-        <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-4">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              1. Chọn vị trí đau / Nhóm triệu chứng trên cơ thể:
-            </p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {BODY_LOCATIONS.map((loc) => (
-                <button
-                  key={loc.id}
-                  type="button"
-                  onClick={() => setSelectedBody(loc)}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-left text-xs font-medium transition-all",
-                    selectedBody.id === loc.id
-                      ? "border-primary bg-primary/10 text-primary ring-1 ring-primary"
-                      : "bg-background hover:bg-muted",
-                  )}
-                >
-                  <span className="text-base">{loc.icon}</span>
-                  <span>{loc.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="flex flex-col gap-3.5 rounded-xl border bg-muted/20 p-4">
+          <InteractiveBodyMap
+            selectedRegionId={selectedRegion.id}
+            onSelectRegion={(r) => setSelectedRegion(r)}
+          />
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -300,7 +275,7 @@ export function FallbackAssistantPanel({
                     className={cn(
                       "cursor-pointer rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                       selectedPain.id === p.id
-                        ? "border-primary bg-primary text-primary-foreground"
+                        ? "border-primary bg-primary text-primary-foreground font-semibold"
                         : "bg-background hover:bg-muted",
                     )}
                   >
@@ -323,7 +298,7 @@ export function FallbackAssistantPanel({
                     className={cn(
                       "cursor-pointer rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                       selectedOnset.id === o.id
-                        ? "border-primary bg-primary text-primary-foreground"
+                        ? "border-primary bg-primary text-primary-foreground font-semibold"
                         : "bg-background hover:bg-muted",
                     )}
                   >
@@ -334,10 +309,10 @@ export function FallbackAssistantPanel({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background p-3 shadow-xs">
             <div className="space-y-0.5">
               <span className="text-[11px] font-medium text-muted-foreground">
-                Câu khai báo tự động tạo từ lựa chọn hình ảnh:
+                Câu khai báo tự động tạo từ sơ đồ cơ thể:
               </span>
               <p className="text-sm font-semibold text-foreground">
                 “{composedBodySymptom}”
@@ -356,7 +331,7 @@ export function FallbackAssistantPanel({
                 size="sm"
                 onClick={() => {
                   speakVietnamese(composedBodySymptom)
-                  onApplyFallbackText(composedBodySymptom, "SƠ-ĐỒ-CƠ-THỂ")
+                  onApplyFallbackText(composedBodySymptom, selectedRegion.label.toUpperCase().replace(/\s+/g, "-"))
                 }}
               >
                 <UserCheck className="size-3.5" />
