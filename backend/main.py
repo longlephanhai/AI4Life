@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from schemas import SemanticFrame, ParseRequest, RecognizeResponse, IntentType
+from schemas import SemanticFrame, ParseRequest, RecognizeResponse, RecognitionStatus, IntentType
 from semantic_parser import parse_semantic_frame
 from ai_engine import ai_engine
 
@@ -108,38 +108,79 @@ async def api_recognize(
     """
     API Nhận diện cử chỉ ký hiệu:
     1. Nếu chọn sample_id: Trả về kết quả mẫu chuẩn từ bộ dữ liệu.
-    2. Nếu upload video: Xử lý qua pipeline nhận diện AI thực tế (checkpoint_best.pt).
+    2. Nếu upload video: Xử lý qua pipeline nhận diện AI thực tế kèm bộ lọc an toàn (không đoán bậy).
     """
+    is_recognized = True
+    recognition_status = RecognitionStatus.RECOGNIZED
+    fallback_message = None
+
     if sample_id and sample_id in DATASET_SAMPLES:
         sample = DATASET_SAMPLES[sample_id]
         glosses = sample["gloss_sequence"]
         translation = sample["translation"]
         confidence = 0.96
     elif video:
+        tmp_path = None
         try:
             suffix = Path(video.filename).suffix if video.filename else ".mp4"
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 content = await video.read()
                 tmp.write(content)
                 tmp_path = tmp.name
-            glosses, translation, confidence, _ = ai_engine.predict_video(tmp_path)
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
-        except Exception:
-            glosses = ["TÔI", "ĐĂNG-KÝ", "KHÁM", "SỨC-KHỎE", "MUỐN"]
-            translation = "Tôi muốn đăng ký khám sức khỏe."
-            confidence = 0.92
+            pred = ai_engine.predict_video(tmp_path)
+            is_recognized = pred["is_recognized"]
+            recognition_status = RecognitionStatus(pred["recognition_status"])
+            fallback_message = pred["fallback_message"]
+            glosses = pred["gloss_sequence"]
+            translation = pred["translation"]
+            confidence = pred["confidence"]
+        except Exception as e:
+            print(f"[Backend] Lỗi nhận diện video: {e}")
+            is_recognized = False
+            recognition_status = RecognitionStatus.INVALID_VIDEO
+            fallback_message = "Không thể phân tích file video. Vui lòng thử lại hoặc sử dụng công cụ hỗ trợ bên dưới."
+            glosses = []
+            translation = ""
+            confidence = 0.0
+        finally:
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
     else:
-        glosses = ["TÔI", "ĐĂNG-KÝ", "KHÁM", "SỨC-KHỎE", "MUỐN"]
-        translation = "Tôi muốn đăng ký khám sức khỏe."
-        confidence = 0.95
+        is_recognized = False
+        recognition_status = RecognitionStatus.INVALID_VIDEO
+        fallback_message = "Chưa có dữ liệu video hoặc mẫu ký hiệu."
+        glosses = []
+        translation = ""
+        confidence = 0.0
 
-    frame = parse_semantic_frame(gloss_sequence=glosses, translation=translation)
+    if is_recognized and translation:
+        frame = parse_semantic_frame(gloss_sequence=glosses, translation=translation)
+    else:
+        frame = SemanticFrame(
+            intent=IntentType.GENERAL,
+            specialty="Bàn Tiếp Nhận & Hỗ Trợ",
+            visit_reason="Cần hỗ trợ nhận diện / giao tiếp bổ sung",
+            symptoms=[],
+            needs_human_review=True,
+            review_reasons=[fallback_message or "Không nhận diện được ký hiệu đủ độ tin cậy an toàn"],
+            summary_for_clinician="Bệnh nhân thực hiện ký hiệu ngoài bộ từ vựng hoặc độ tin cậy thấp. Cần hỗ trợ qua bảng tương tác hoặc nhân viên y tế.",
+            patient_confirmation_text=fallback_message or "Hệ thống chưa nhận diện chắc chắn ký hiệu vừa rồi.",
+            suggested_action="Mời chọn phương thức thay thế (Thử lại / Chọn trên sơ đồ cơ thể / Câu giao tiếp có sẵn / Nhập văn bản / Gọi hỗ trợ)",
+            doctor_quick_responses=[
+                "Mời bạn chỉ vào vị trí đau trên sơ đồ cơ thể",
+                "Mời bạn nhập nội dung hoặc chọn câu có sẵn trên màn hình",
+                "Nhân viên hỗ trợ đang ra tiếp nhận trực tiếp"
+            ]
+        )
 
     return RecognizeResponse(
         sample_id=sample_id,
+        is_recognized=is_recognized,
+        recognition_status=recognition_status,
+        fallback_message=fallback_message,
         gloss_sequence=glosses,
         translation=translation,
         confidence=confidence,
@@ -208,7 +249,7 @@ def api_get_queue():
 
 class DoctorReplyRequest(BaseModel):
     message: str
-    clinician_name: Optional[str] = "BS. Trực Tiếp Nhận"
+    clinician_name: Optional[str] = "NV. Bàn Tiếp Nhận"
 
 
 @app.post("/api/queue/{ticket_number}/reply")

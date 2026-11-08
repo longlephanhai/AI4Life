@@ -38,8 +38,21 @@ class ParseRequest(BaseModel):
     gloss_sequence: Optional[List[str]] = Field(default=None, description="Chuỗi gloss từ mô hình AI")
     translation: Optional[str] = Field(default=None, description="Câu dịch tiếng Việt")
 
+
+class RecognitionStatus(str, Enum):
+    RECOGNIZED = "recognized"                   # Nhận diện thành công với độ tin cậy cao
+    LOW_CONFIDENCE = "low_confidence"           # AI không chắc chắn (dưới ngưỡng an toàn)
+    OUT_OF_VOCABULARY = "out_of_vocabulary"     # Ký hiệu nằm ngoài bộ từ điển AI đã học
+    HANDS_NOT_DETECTED = "hands_not_detected"   # Tay nằm ngoài khung hình hoặc bị che khuất
+    NO_MOVEMENT = "no_movement"                 # Chưa thực hiện động tác ký hiệu rõ ràng
+    INVALID_VIDEO = "invalid_video"             # Video quá ngắn hoặc không đọc được
+
+
 class RecognizeResponse(BaseModel):
     sample_id: Optional[str] = None
+    is_recognized: bool = True
+    recognition_status: RecognitionStatus = RecognitionStatus.RECOGNIZED
+    fallback_message: Optional[str] = None
     gloss_sequence: List[str]
     translation: str
     confidence: float

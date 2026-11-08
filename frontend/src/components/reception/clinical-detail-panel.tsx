@@ -34,9 +34,9 @@ export function ClinicalDetailPanel({
       <Card className="flex min-h-112 flex-col items-center justify-center gap-3 p-10 text-center">
         <ClipboardList className="size-8 text-muted-foreground" aria-hidden />
         <div className="max-w-sm space-y-1">
-          <h3 className="text-base font-semibold">Chưa chọn hồ sơ bệnh nhân</h3>
+          <h3 className="text-base font-semibold">Chưa chọn hồ sơ người thăm khám</h3>
           <p className="text-sm text-muted-foreground">
-            Chọn một phiếu khám ở danh sách bên trái để xem thông tin lâm sàng bóc tách và gửi phản hồi 1 chạm.
+            Chọn một phiếu từ danh sách hàng đợi bên trái để xem thông tin tiếp nhận bóc tách và gửi hướng dẫn 1 chạm đến Kiosk.
           </p>
         </div>
       </Card>
@@ -49,9 +49,9 @@ export function ClinicalDetailPanel({
     frame.doctor_quick_responses?.length > 0
       ? frame.doctor_quick_responses
       : [
-          "Mời bạn vào phòng khám 102",
+          "Mời bạn đến Bàn Tiếp Nhận số 1",
           "Mời bạn xuất trình thẻ BHYT / CCCD",
-          "Bạn vui lòng ngồi chờ điều dưỡng đo sinh hiệu",
+          "Vui lòng ngồi chờ nhân viên y tế đo huyết áp",
         ]
 
   const handleCustomSubmit = (e: React.FormEvent) => {
@@ -67,7 +67,7 @@ export function ClinicalDetailPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Hồ Sơ Lâm Sàng Bóc Tách Tự Động
+              Hồ Sơ Tiếp Nhận Bóc Tách Tự Động
             </p>
             <h2 className="font-display text-xl font-semibold">
               {selectedCase.patient_name} — Phiếu #{selectedCase.ticket_number}
@@ -101,7 +101,7 @@ export function ClinicalDetailPanel({
                 Cảnh Báo Cấp Cứu Đỏ Khẩn Cấp
               </p>
               <p className="text-xs opacity-90">
-                Người bệnh có dấu hiệu suy hô hấp / tim mạch cấp tính. Đề nghị ưu tiên tiếp nhận ngay lập tức.
+                Người bệnh có dấu hiệu suy hô hấp / tim mạch cấp tính. Đề nghị nhân viên y tế can thiệp ngay lập tức.
               </p>
             </div>
           </div>
@@ -109,7 +109,7 @@ export function ClinicalDetailPanel({
 
         <div className="rounded-xl border bg-muted/40 p-4 space-y-1">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Tóm Tắt Chuyên Môn Cho Nhân Viên Y Tế
+            Tóm Tắt Chuyên Môn Cho Nhân Viên Tiếp Nhận
           </p>
           <p className="text-base font-semibold leading-relaxed">
             {frame.summary_for_clinician}
@@ -122,7 +122,7 @@ export function ClinicalDetailPanel({
               Chuyên Khoa Đề Xuất
             </p>
             <p className="text-sm font-semibold text-primary">
-              {frame.specialty ?? "Khám Đa Khoa"}
+              {frame.specialty ?? "Bàn Tiếp Nhận Chung"}
             </p>
           </div>
 
@@ -157,7 +157,7 @@ export function ClinicalDetailPanel({
             />
             <div className="space-y-0.5">
               <p className="text-xs font-semibold uppercase tracking-wider text-warning-foreground">
-                Lưu Ý Cần Khảo Sát Thêm
+                Lưu Ý Cần Nhân Viên Khảo Sát Thêm
               </p>
               <p className="text-sm text-foreground">
                 {frame.review_reasons.join(" • ")}
@@ -168,7 +168,7 @@ export function ClinicalDetailPanel({
 
         <div className="rounded-xl border bg-muted/30 p-4 space-y-1">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Hướng Xử Trí Đề Xuất
+            Hướng Xử Trí Tiếp Đón Đề Xuất
           </p>
           <p className="text-sm">{frame.suggested_action}</p>
         </div>
@@ -178,7 +178,7 @@ export function ClinicalDetailPanel({
         <div className="flex items-center gap-2">
           <MessageSquarePlus className="size-4 text-primary" aria-hidden />
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Phản Hồi Trực Quan 1 Chạm Tới Màn Hình Kiosk Bệnh Nhân
+            Phản Hồi Trực Quan 1 Chạm Tới Màn Hình Kiosk Người Thăm Khám
           </p>
         </div>
 
@@ -202,7 +202,7 @@ export function ClinicalDetailPanel({
             type="text"
             value={customReply}
             onChange={(e) => setCustomReply(e.target.value)}
-            placeholder="Nhập tin nhắn hướng dẫn trực tiếp cho người bệnh..."
+            placeholder="Nhập hướng dẫn trực tiếp cho người thăm khám..."
             className="h-10 flex-1 rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
           />
           <Button

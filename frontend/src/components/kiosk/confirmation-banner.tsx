@@ -37,7 +37,7 @@ export function ConfirmationBanner({
     frame?.patient_confirmation_text ??
     (translation
       ? `Ý của bạn là: "${translation}" — Có đúng không?`
-      : "Vui lòng kiểm tra thông tin trước khi xác nhận gửi đến bàn bác sĩ.")
+      : "Vui lòng kiểm tra thông tin trước khi xác nhận gửi đến Bàn Tiếp Nhận.")
 
   return (
     <div className="flex flex-col gap-3">
@@ -62,7 +62,7 @@ export function ConfirmationBanner({
             className="sm:col-span-2"
           >
             <Send />
-            ĐÚNG, GỬI BÁC SĨ
+            ĐÚNG, GỬI BÀN TIẾP NHẬN
           </Button>
 
           <Button
@@ -109,7 +109,7 @@ export function ConfirmationBanner({
                   Số Thứ Tự Khám: {activeTicket}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Mời bạn quan sát màn hình hoặc chờ phản hồi trực tiếp từ Bác sĩ bên dưới.
+                  Mời bạn quan sát màn hình hoặc chờ hướng dẫn từ Bàn Tiếp Nhận bên dưới.
                 </p>
               </div>
             </div>
@@ -120,7 +120,7 @@ export function ConfirmationBanner({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-primary">
-                      Phản hồi từ {doctorReply.clinician_name}
+                      Hướng dẫn từ {doctorReply.clinician_name}
                     </span>
                     <span className="text-xs text-muted-foreground tabular-nums">
                       • {doctorReply.replied_at}

@@ -12,7 +12,7 @@ import {
   useRecognizeVideo,
   useScenarios,
 } from "@/hooks/use-signbridge"
-import type { SampleScenario, SemanticFrame } from "@/lib/types"
+import type { RecognitionStatus, SampleScenario, SemanticFrame } from "@/lib/types"
 
 export function KioskWorkspace() {
   const { pushToast } = useToast()
@@ -34,10 +34,24 @@ export function KioskWorkspace() {
     "Tôi muốn đăng ký khám sức khỏe.",
   )
   const [confidence, setConfidence] = React.useState<number>(0.965)
+  const [isRecognized, setIsRecognized] = React.useState<boolean>(true)
+  const [recognitionStatus, setRecognitionStatus] =
+    React.useState<RecognitionStatus>("recognized")
+  const [fallbackMessage, setFallbackMessage] = React.useState<string | null>(null)
   const [frame, setFrame] = React.useState<SemanticFrame | null>(null)
   const [activeVideoName, setActiveVideoName] = React.useState<string | null>(null)
-  const [activeTicket, setActiveTicket] = React.useState<string | null>(null)
+  const [activeTicket, setActiveTicket] = React.useState<string | null>(() => {
+    return typeof window !== "undefined"
+      ? sessionStorage.getItem("vsl_active_ticket")
+      : null
+  })
   const [isEditOpen, setIsEditOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    if (activeTicket) {
+      sessionStorage.setItem("vsl_active_ticket", activeTicket)
+    }
+  }, [activeTicket])
 
   // Load default scenario on mount
   React.useEffect(() => {
@@ -56,6 +70,9 @@ export function KioskWorkspace() {
   const applyScenario = (scenario: SampleScenario) => {
     setActiveScenarioId(scenario.id)
     setActiveTicket(null)
+    setIsRecognized(true)
+    setRecognitionStatus("recognized")
+    setFallbackMessage(null)
     setGlosses(scenario.glosses)
     setTranslation(scenario.translation)
     setConfidence(scenario.id === "EMERGENCY" ? 0.99 : 0.965)
@@ -82,7 +99,7 @@ export function KioskWorkspace() {
     })
     pushToast({
       title: "Đã kích hoạt chế độ Cấp Cứu Khẩn Cấp",
-      description: "Nhấn [ĐÚNG, GỬI BÁC SĨ] để chuyển ngay lên đầu hàng đợi cấp cứu.",
+      description: "Nhấn [ĐÚNG, GỬI BÀN TIẾP NHẬN] để chuyển ngay lên đầu hàng đợi cấp cứu.",
       tone: "destructive",
     })
   }
@@ -94,15 +111,30 @@ export function KioskWorkspace() {
 
     recognizeMutation.mutate(file, {
       onSuccess: (res) => {
+        const recognized = res.is_recognized !== false
+        setIsRecognized(recognized)
+        setRecognitionStatus(res.recognition_status ?? (recognized ? "recognized" : "low_confidence"))
+        setFallbackMessage(res.fallback_message ?? null)
         setGlosses(res.gloss_sequence)
         setTranslation(res.translation)
         setConfidence(res.confidence)
         setFrame(res.semantic_frame)
-        pushToast({
-          title: "Đã phân tích video thành công",
-          description: `Câu dịch: "${res.translation}"`,
-          tone: "success",
-        })
+
+        if (recognized) {
+          pushToast({
+            title: "Đã nhận diện ký hiệu thành công",
+            description: `Câu dịch: "${res.translation}" (${(res.confidence * 100).toFixed(0)}%)`,
+            tone: "success",
+          })
+        } else {
+          pushToast({
+            title: "Chưa nhận diện chắc chắn ký hiệu",
+            description:
+              res.fallback_message ??
+              "Để đảm bảo an toàn y tế, hệ thống không đoán mò. Vui lòng thử lại hoặc chọn công cụ hỗ trợ.",
+            tone: "destructive",
+          })
+        }
       },
       onError: () => {
         pushToast({
@@ -130,7 +162,7 @@ export function KioskWorkspace() {
           setActiveTicket(res.ticket_number)
           pushToast({
             title: `Đã cấp số thứ tự ${res.ticket_number}`,
-            description: "Hồ sơ của bạn đã được chuyển tới Bàn Bác sĩ tiếp nhận.",
+            description: "Hồ sơ của bạn đã được chuyển tới Bàn Tiếp Nhận.",
             tone: "success",
           })
         },
@@ -144,6 +176,9 @@ export function KioskWorkspace() {
       {
         onSuccess: (parsed) => {
           setActiveScenarioId("EDITED")
+          setIsRecognized(true)
+          setRecognitionStatus("recognized")
+          setFallbackMessage(null)
           setGlosses(["CHỈNH-SỬA-TAY"])
           setTranslation(newText)
           setConfidence(1.0)
@@ -192,6 +227,9 @@ export function KioskWorkspace() {
             confidence={confidence}
             frame={frame}
             isPending={parseMutation.isPending || recognizeMutation.isPending}
+            isRecognized={isRecognized}
+            recognitionStatus={recognitionStatus}
+            fallbackMessage={fallbackMessage}
           />
 
           <ConfirmationBanner

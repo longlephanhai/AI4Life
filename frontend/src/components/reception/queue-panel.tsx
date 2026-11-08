@@ -48,11 +48,11 @@ export function QueuePanel({
         error={error}
         onRetry={onRefresh}
         getKey={(c) => c.ticket_number}
-        emptyTitle="Hàng đợi hiện đang trống"
-        emptyDescription="Ca khám xác nhận từ Kiosk Bệnh nhân sẽ tự động hiển thị tại đây."
+        emptyTitle="Hàng đợi tiếp nhận hiện đang trống"
+        emptyDescription="Ca khai báo từ Kiosk Người thăm khám sẽ tự động hiển thị tại đây theo thời gian thực."
         emptyAction={
           <Button variant="outline" size="sm" onClick={onSwitchToKiosk}>
-            Mở Kiosk để gửi ca mẫu
+            Mở Kiosk Người thăm khám để gửi ca mẫu
           </Button>
         }
         className="max-h-140 overflow-y-auto overscroll-contain pr-1"
@@ -96,7 +96,7 @@ export function QueuePanel({
                 {!isEmergency && item.semantic_frame.needs_human_review && (
                   <Badge variant="warning">Cần khảo sát thêm</Badge>
                 )}
-                {item.doctor_reply && <Badge variant="success">Đã phản hồi</Badge>}
+                {item.doctor_reply && <Badge variant="success">Đã hướng dẫn</Badge>}
               </div>
             </button>
           )

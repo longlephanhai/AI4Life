@@ -27,8 +27,19 @@ export interface SemanticFrame {
   doctor_quick_responses: string[]
 }
 
+export type RecognitionStatus =
+  | "recognized"
+  | "low_confidence"
+  | "out_of_vocabulary"
+  | "hands_not_detected"
+  | "no_movement"
+  | "invalid_video"
+
 export interface RecognizeResponse {
   sample_id: string | null
+  is_recognized?: boolean
+  recognition_status?: RecognitionStatus
+  fallback_message?: string | null
   gloss_sequence: string[]
   translation: string
   confidence: number

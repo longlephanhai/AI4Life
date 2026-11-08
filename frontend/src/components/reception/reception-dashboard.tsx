@@ -1,15 +1,15 @@
 import * as React from "react"
-import { ClinicalDetailPanel } from "@/components/doctor/clinical-detail-panel"
-import { QueuePanel } from "@/components/doctor/queue-panel"
+import { ClinicalDetailPanel } from "@/components/reception/clinical-detail-panel"
+import { QueuePanel } from "@/components/reception/queue-panel"
 import { StatCard } from "@/components/ui/stat-card"
 import { useToast } from "@/components/ui/toast"
 import { useDoctorReply, useQueue, useServeTicket } from "@/hooks/use-signbridge"
 
-interface DoctorDashboardProps {
+interface ReceptionDashboardProps {
   onSwitchToKiosk: () => void
 }
 
-export function DoctorDashboard({ onSwitchToKiosk }: DoctorDashboardProps) {
+export function ReceptionDashboard({ onSwitchToKiosk }: ReceptionDashboardProps) {
   const { pushToast } = useToast()
   const queueQuery = useQueue()
   const replyMutation = useDoctorReply()
@@ -48,7 +48,7 @@ export function DoctorDashboard({ onSwitchToKiosk }: DoctorDashboardProps) {
       {
         onSuccess: () => {
           pushToast({
-            title: `Đã gửi phản hồi tới phiếu ${ticketNumber}`,
+            title: `Đã gửi hướng dẫn tới phiếu ${ticketNumber}`,
             description: `Nội dung: "${message}"`,
             tone: "success",
           })
@@ -62,7 +62,7 @@ export function DoctorDashboard({ onSwitchToKiosk }: DoctorDashboardProps) {
       onSuccess: () => {
         pushToast({
           title: `Đã hoàn thành tiếp nhận phiếu ${ticketNumber}`,
-          description: "Ca khám đã được chuyển sang phòng chuyên khoa.",
+          description: "Ca khám đã được chuyển đến phòng chuyên khoa.",
           tone: "success",
         })
       },
@@ -78,7 +78,7 @@ export function DoctorDashboard({ onSwitchToKiosk }: DoctorDashboardProps) {
         </StatCard>
 
         <StatCard>
-          <StatCard.Label>Ca Đã Hoàn Thành</StatCard.Label>
+          <StatCard.Label>Ca Đã Tiếp Nhận Xong</StatCard.Label>
           <StatCard.Value>{servedCount}</StatCard.Value>
         </StatCard>
 
