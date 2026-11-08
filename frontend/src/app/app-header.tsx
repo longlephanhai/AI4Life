@@ -61,7 +61,7 @@ export function AppHeader({
               )}
             />
             <span className="font-medium text-muted-foreground">
-              {isModelReady ? "SLTModel Ready (BLEU 74.9)" : "API Connected"}
+              {isModelReady ? "SLTModel v2 Ready (BLEU 89.6%)" : "API Connected"}
             </span>
           </div>
 

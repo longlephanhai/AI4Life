@@ -1,8 +1,10 @@
 import {
   AlertTriangle,
   ArrowRightCircle,
+  Calendar,
   Check,
   CheckCircle2,
+  Clock,
   CreditCard,
   Edit3,
   HeartPulse,
@@ -32,6 +34,8 @@ interface ConfirmationBannerProps {
   isAcking?: boolean
 }
 
+type QuestionCategory = "time" | "severity" | "yes_no" | "instruction"
+
 export function ConfirmationBanner({
   frame,
   translation,
@@ -50,10 +54,40 @@ export function ConfirmationBanner({
       ? `Ý của bạn là: "${translation}" — Có đúng không?`
       : "Vui lòng kiểm tra thông tin trước khi xác nhận gửi đến Bàn Tiếp Nhận.")
 
-  // Xác định Icon và chủ đề hình ảnh tương ứng với nội dung phản hồi của nhân viên y tế
+  // Xác định Icon, chủ đề và loại câu hỏi thông minh dựa trên nội dung bác sĩ gửi
   const getVisualReplyMeta = (reply: DoctorReply) => {
     const cat = reply.category || ""
     const msg = reply.message.toLowerCase()
+
+    // 1. Câu hỏi về thời gian / khởi phát: "khi nào", "bao lâu", "mấy ngày", "từ lúc nào", "thời gian"
+    const isTime =
+      msg.includes("khi nào") ||
+      msg.includes("bao lâu") ||
+      msg.includes("từ lúc nào") ||
+      msg.includes("mấy ngày") ||
+      msg.includes("thời gian") ||
+      msg.includes("từ khi")
+
+    // 2. Câu hỏi về mức độ đau: "nhiều hay ít", "mức độ", "đau nhiều không", "nặng hay nhẹ"
+    const isSeverity =
+      msg.includes("nhiều hay") ||
+      msg.includes("mức độ") ||
+      msg.includes("đau nhiều") ||
+      msg.includes("nặng hay")
+
+    // 3. Câu hỏi Có/Không thông thường
+    const isYesNo =
+      !isTime &&
+      !isSeverity &&
+      (msg.includes("?") ||
+        msg.includes("không") ||
+        msg.includes("chưa") ||
+        cat === "question_yes_no")
+
+    let questionType: QuestionCategory = "instruction"
+    if (isTime) questionType = "time"
+    else if (isSeverity) questionType = "severity"
+    else if (isYesNo) questionType = "yes_no"
 
     if (cat === "insurance" || msg.includes("bhyt") || msg.includes("cccd") || msg.includes("thẻ")) {
       return {
@@ -62,7 +96,7 @@ export function ConfirmationBanner({
         color: "text-amber-600 dark:text-amber-400",
         border: "border-amber-500/40 bg-amber-500/10",
         badgeVariant: "warning" as const,
-        isQuestion: false,
+        questionType,
       }
     }
     if (cat === "vital_signs" || msg.includes("huyết áp") || msg.includes("thở") || msg.includes("nhiệt độ")) {
@@ -72,7 +106,7 @@ export function ConfirmationBanner({
         color: "text-rose-600 dark:text-rose-400",
         border: "border-rose-500/40 bg-rose-500/10",
         badgeVariant: "destructive" as const,
-        isQuestion: false,
+        questionType,
       }
     }
     if (cat === "direction" || msg.includes("bàn") || msg.includes("phòng") || msg.includes("đến")) {
@@ -82,7 +116,7 @@ export function ConfirmationBanner({
         color: "text-sky-600 dark:text-sky-400",
         border: "border-sky-500/40 bg-sky-500/10",
         badgeVariant: "accent" as const,
-        isQuestion: false,
+        questionType,
       }
     }
     if (cat === "emergency" || msg.includes("cấp cứu") || msg.includes("hỗ trợ ngay")) {
@@ -92,17 +126,37 @@ export function ConfirmationBanner({
         color: "text-red-600 dark:text-red-400",
         border: "border-red-500/50 bg-red-500/15 animate-pulse",
         badgeVariant: "destructive" as const,
-        isQuestion: false,
+        questionType,
       }
     }
-    if (cat === "question_yes_no" || reply.message.includes("?") || msg.includes("không") || msg.includes("chưa")) {
+    if (questionType === "time") {
+      return {
+        icon: Calendar,
+        tag: "CÂU HỎI THỜI GIAN KHỞI PHÁT",
+        color: "text-indigo-600 dark:text-indigo-400",
+        border: "border-indigo-500/40 bg-indigo-500/10",
+        badgeVariant: "default" as const,
+        questionType,
+      }
+    }
+    if (questionType === "severity") {
+      return {
+        icon: HeartPulse,
+        tag: "CÂU HỎI MỨC ĐỘ ĐAU",
+        color: "text-orange-600 dark:text-orange-400",
+        border: "border-orange-500/40 bg-orange-500/10",
+        badgeVariant: "warning" as const,
+        questionType,
+      }
+    }
+    if (questionType === "yes_no") {
       return {
         icon: HelpCircle,
-        tag: "CÂU HỎI TỪ NHÂN VIÊN Y TẾ",
+        tag: "CÂU HỎI XÁC MINH (CÓ / KHÔNG)",
         color: "text-violet-600 dark:text-violet-400",
         border: "border-violet-500/40 bg-violet-500/10",
         badgeVariant: "default" as const,
-        isQuestion: true,
+        questionType,
       }
     }
     return {
@@ -111,7 +165,7 @@ export function ConfirmationBanner({
       color: "text-primary",
       border: "border-primary/40 bg-primary/10",
       badgeVariant: "default" as const,
-      isQuestion: false,
+      questionType,
     }
   }
 
@@ -120,53 +174,60 @@ export function ConfirmationBanner({
 
   return (
     <div className="flex flex-col gap-3">
-      <Card className="flex flex-col gap-3 border-2 border-primary/50 bg-accent/20 p-5 shadow-sm">
-        <div className="flex items-start gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <CheckCircle2 className="size-5" aria-hidden />
+      {/* 
+        CHỈ HIỂN THỊ KHỐI XÁC NHẬN GỬI ĐI KHI CHƯA CÓ VÉ (activeTicket === null).
+        Khi đã có vé, chỉ tập trung hiển thị Số phiếu và Khối hội thoại với bác sĩ!
+      */}
+      {!activeTicket && (
+        <Card className="flex flex-col gap-3 border-2 border-primary/50 bg-accent/20 p-5 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <CheckCircle2 className="size-5" aria-hidden />
+            </div>
+            <div className="space-y-0.5">
+              <h3 className="text-base font-semibold">Xác Nhận 2 Chiều (An Toàn Y Khoa)</h3>
+              <p className="text-xs text-muted-foreground">{confirmationPrompt}</p>
+            </div>
           </div>
-          <div className="space-y-0.5">
-            <h3 className="text-base font-semibold">Xác Nhận 2 Chiều (An Toàn Y Khoa)</h3>
-            <p className="text-xs text-muted-foreground">{confirmationPrompt}</p>
+
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            <Button
+              size="lg"
+              variant="default"
+              loading={isSending}
+              disabled={!frame || !translation}
+              onClick={onConfirm}
+              className="sm:col-span-2 font-bold text-sm"
+            >
+              <Send />
+              ĐÚNG, GỬI BÀN TIẾP NHẬN
+            </Button>
+
+            <Button
+              size="lg"
+              variant="outline"
+              disabled={!translation}
+              onClick={onOpenEdit}
+            >
+              <Edit3 />
+              Sửa Lại
+            </Button>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-          <Button
-            size="lg"
-            variant="default"
-            loading={isSending}
-            disabled={!frame || !translation}
-            onClick={onConfirm}
-            className="sm:col-span-2"
-          >
-            <Send />
-            ĐÚNG, GỬI BÀN TIẾP NHẬN
-          </Button>
+          <div className="flex items-center justify-between border-t pt-2.5">
+            <button
+              type="button"
+              onClick={onRequestHumanHelp}
+              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              <HelpCircle className="size-3.5" aria-hidden />
+              Không diễn đạt được? Nhấn để gọi Phiên dịch viên hỗ trợ trực tiếp
+            </button>
+          </div>
+        </Card>
+      )}
 
-          <Button
-            size="lg"
-            variant="outline"
-            disabled={!translation}
-            onClick={onOpenEdit}
-          >
-            <Edit3 />
-            Sửa Lại
-          </Button>
-        </div>
-
-        <div className="flex items-center justify-between border-t pt-2.5">
-          <button
-            type="button"
-            onClick={onRequestHumanHelp}
-            className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-          >
-            <HelpCircle className="size-3.5" aria-hidden />
-            Không diễn đạt được? Nhấn để gọi Phiên dịch viên hỗ trợ trực tiếp
-          </button>
-        </div>
-      </Card>
-
+      {/* MÀN HÌNH ĐỐI THOẠI SAU KHI ĐÃ CẤP SỐ THỨ TỰ */}
       <AnimatePresence initial={false}>
         {activeTicket && (
           <motion.div
@@ -176,10 +237,10 @@ export function ConfirmationBanner({
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             aria-live="polite"
-            className="flex flex-col gap-4 rounded-xl border border-success/40 bg-success/10 p-5 shadow-sm"
+            className="flex flex-col gap-4 rounded-2xl border border-success/40 bg-success/10 p-5 shadow-sm"
           >
             <div className="flex items-center gap-4">
-              <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-success text-success-foreground shadow-sm">
+              <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-success text-success-foreground shadow-sm">
                 <Ticket className="size-7" aria-hidden />
               </div>
               <div className="space-y-0.5">
@@ -237,7 +298,7 @@ export function ConfirmationBanner({
                   </p>
                 </div>
 
-                {/* Phản hồi 1 chạm từ bệnh nhân ngược lại cho Bàn Tiếp Nhận */}
+                {/* Phản hồi thông minh theo đúng loại câu hỏi từ bác sĩ */}
                 {hasAcked ? (
                   <div className="flex items-center justify-between rounded-xl border border-success/40 bg-success/15 px-4 py-2.5">
                     <div className="flex items-center gap-2">
@@ -253,11 +314,114 @@ export function ConfirmationBanner({
                 ) : (
                   <div className="space-y-2 pt-1">
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Bấm nút bên dưới để phản hồi ngay cho nhân viên y tế:
+                      Bấm nút bên dưới để trả lời ngay cho nhân viên y tế:
                     </p>
 
-                    {replyMeta.isQuestion ? (
-                      /* Nếu là câu hỏi (Có / Không / Cần giúp) */
+                    {/* TRƯỜNG HỢP 1: CÂU HỎI THỜI GIAN ("Khi nào?", "Bao lâu?") */}
+                    {replyMeta.questionType === "time" && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <Button
+                            size="lg"
+                            variant="secondary"
+                            loading={isAcking}
+                            onClick={() => onAcknowledge?.("understood", "Vừa mới xuất hiện hôm nay")}
+                            className="text-xs font-bold gap-1.5 border"
+                          >
+                            <Clock className="size-3.5" />
+                            Vừa mới hôm nay
+                          </Button>
+                          <Button
+                            size="lg"
+                            variant="secondary"
+                            loading={isAcking}
+                            onClick={() => onAcknowledge?.("understood", "Bắt đầu từ hôm qua")}
+                            className="text-xs font-bold gap-1.5 border"
+                          >
+                            <Calendar className="size-3.5" />
+                            Từ hôm qua
+                          </Button>
+                          <Button
+                            size="lg"
+                            variant="secondary"
+                            loading={isAcking}
+                            onClick={() => onAcknowledge?.("understood", "Đã bị 2–3 ngày nay")}
+                            className="text-xs font-bold gap-1.5 border"
+                          >
+                            <Calendar className="size-3.5" />
+                            2–3 ngày nay
+                          </Button>
+                          <Button
+                            size="lg"
+                            variant="secondary"
+                            loading={isAcking}
+                            onClick={() => onAcknowledge?.("understood", "Kéo dài hơn 1 tuần nay")}
+                            className="text-xs font-bold gap-1.5 border"
+                          >
+                            <Calendar className="size-3.5" />
+                            Hơn 1 tuần
+                          </Button>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          loading={isAcking}
+                          onClick={() => onAcknowledge?.("need_help", "Cần phiên dịch viên hỗ trợ")}
+                          className="w-full text-xs text-muted-foreground"
+                        >
+                          <HelpCircle className="size-3.5 mr-1" />
+                          Không chắc chắn? Bấm để gọi người giải thích
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* TRƯỜNG HỢP 2: CÂU HỎI MỨC ĐỘ ĐAU ("Nhiều hay ít?", "Mức độ nào?") */}
+                    {replyMeta.questionType === "severity" && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <Button
+                            size="lg"
+                            variant="secondary"
+                            loading={isAcking}
+                            onClick={() => onAcknowledge?.("understood", "Đau mức độ nhẹ (1–3)")}
+                            className="text-xs font-bold border"
+                          >
+                            Đau nhẹ (1–3)
+                          </Button>
+                          <Button
+                            size="lg"
+                            variant="secondary"
+                            loading={isAcking}
+                            onClick={() => onAcknowledge?.("understood", "Đau mức độ vừa (4–6)")}
+                            className="text-xs font-bold border border-amber-400 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                          >
+                            Đau vừa (4–6)
+                          </Button>
+                          <Button
+                            size="lg"
+                            variant="destructive"
+                            loading={isAcking}
+                            onClick={() => onAcknowledge?.("understood", "Đau dữ dội / Rất nặng (7–10)")}
+                            className="text-xs font-bold shadow-sm"
+                          >
+                            Rất dữ dội (7–10)
+                          </Button>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          loading={isAcking}
+                          onClick={() => onAcknowledge?.("need_help", "Cần hỗ trợ đánh giá mức độ")}
+                          className="w-full text-xs text-muted-foreground"
+                        >
+                          <HelpCircle className="size-3.5 mr-1" />
+                          Cần nhân viên hỗ trợ trực tiếp
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* TRƯỜNG HỢP 3: CÂU HỎI CÓ / KHÔNG ("Có dị ứng không?", "Có mang BHYT không?") */}
+                    {replyMeta.questionType === "yes_no" && (
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                         <Button
                           size="lg"
@@ -290,8 +454,10 @@ export function ConfirmationBanner({
                           Cần người hỗ trợ
                         </Button>
                       </div>
-                    ) : (
-                      /* Nếu là chỉ thị / hướng dẫn di chuyển / xuất trình thẻ */
+                    )}
+
+                    {/* TRƯỜNG HỢP 4: CHỈ DẪN / ĐIỀU PHỐI ("Mời bạn qua Bàn số 1") */}
+                    {replyMeta.questionType === "instruction" && (
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <Button
                           size="lg"

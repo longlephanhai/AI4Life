@@ -35,6 +35,15 @@ export type RecognitionStatus =
   | "no_movement"
   | "invalid_video"
 
+export interface MotionDiagnostics {
+  num_frames: number
+  duration_seconds: number
+  hand_ratio: number
+  hand_velocity: number
+  has_left_hand: boolean
+  has_right_hand: boolean
+}
+
 export interface RecognizeResponse {
   sample_id: string | null
   is_recognized?: boolean
@@ -44,6 +53,8 @@ export interface RecognizeResponse {
   translation: string
   confidence: number
   semantic_frame: SemanticFrame
+  extracted_frames?: number[][]
+  diagnostics?: MotionDiagnostics
 }
 
 export interface PatientAck {

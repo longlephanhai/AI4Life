@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -57,3 +57,5 @@ class RecognizeResponse(BaseModel):
     translation: str
     confidence: float
     semantic_frame: SemanticFrame
+    extracted_frames: Optional[List[List[float]]] = None
+    diagnostics: Optional[Dict[str, Any]] = None

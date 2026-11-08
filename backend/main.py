@@ -147,6 +147,8 @@ async def api_recognize(
             glosses = pred["gloss_sequence"]
             translation = pred["translation"]
             confidence = pred["confidence"]
+            extracted_frames = pred.get("extracted_frames")
+            diagnostics = pred.get("diagnostics")
         except Exception as e:
             print(f"[Backend] Lỗi nhận diện video: {e}")
             is_recognized = False
@@ -155,6 +157,8 @@ async def api_recognize(
             glosses = []
             translation = ""
             confidence = 0.0
+            extracted_frames = None
+            diagnostics = None
         finally:
             if tmp_path:
                 try:
@@ -168,6 +172,8 @@ async def api_recognize(
         glosses = []
         translation = ""
         confidence = 0.0
+        extracted_frames = None
+        diagnostics = None
 
     if is_recognized and translation:
         frame = parse_semantic_frame(gloss_sequence=glosses, translation=translation)
@@ -197,7 +203,9 @@ async def api_recognize(
         gloss_sequence=glosses,
         translation=translation,
         confidence=confidence,
-        semantic_frame=frame
+        semantic_frame=frame,
+        extracted_frames=extracted_frames,
+        diagnostics=diagnostics
     )
 
 

@@ -242,27 +242,27 @@ class VSLInferenceEngine:
                 avg_prob = float(np.mean(token_probs)) if token_probs else 0.0
                 p25_prob = float(np.percentile(token_probs, 25)) if token_probs else 0.0
 
-                # 6. Chặn Out-of-Vocabulary (quơ tay đại hoặc từ chưa học -> CTC không khớp được Gloss nào)
-                if len(glosses) == 0 and avg_prob < 0.80:
-                    conf = round(min(avg_prob * 0.5, 0.42), 2)
+                # 6. Chặn Out-of-Vocabulary (chỉ chặn khi độ tự tin cả chuỗi quá thấp < 0.55)
+                if avg_prob < 0.55:
+                    conf = round(avg_prob, 2)
                     return {
                         "is_recognized": False,
                         "recognition_status": "out_of_vocabulary",
-                        "fallback_message": "Ký hiệu chưa có trong bộ từ điển y tế của AI hoặc cử chỉ không khớp. Vui lòng thử lại hoặc sử dụng công cụ hỗ trợ bên dưới.",
+                        "fallback_message": "Cử chỉ chưa khớp với bộ từ điển của mô hình (độ tự tin dưới 55%). Vui lòng thực hiện lại hoặc sử dụng công cụ hỗ trợ bên dưới.",
                         "gloss_sequence": [],
                         "translation": "",
                         "confidence": conf,
                     }
 
-                # 7. Tính độ tin cậy tổng hợp (50% Visual CTC + 50% Decoder Softmax)
+                # 7. Tính độ tin cậy tổng hợp
                 effective_ctc = ctc_conf if len(glosses) > 0 else avg_prob
-                confidence = round(0.5 * effective_ctc + 0.5 * avg_prob, 3)
+                confidence = round(0.4 * effective_ctc + 0.6 * avg_prob, 3)
 
-                if confidence < 0.72 or p25_prob < 0.65:
+                if confidence < 0.58:
                     return {
                         "is_recognized": False,
                         "recognition_status": "low_confidence",
-                        "fallback_message": f"Mức độ tin cậy nhận diện thấp ({int(confidence * 100)}%). Để đảm bảo an toàn y tế, hệ thống không tự ý đoán câu. Vui lòng thực hiện lại hoặc chọn phương thức thay thế.",
+                        "fallback_message": f"Mức độ tin cậy nhận diện thấp ({int(confidence * 100)}%). Để đảm bảo an toàn y tế, hệ thống kích hoạt phương án dự phòng. Bạn có thể làm lại hoặc dùng sơ đồ cơ thể.",
                         "gloss_sequence": glosses,
                         "translation": "",
                         "confidence": confidence,
@@ -314,7 +314,31 @@ class VSLInferenceEngine:
 
         try:
             frames_kp = self._extract_keypoints(video_path)
-            return self.predict_keypoints(frames_kp, sent_key=sent_key)
+            res = self.predict_keypoints(frames_kp, sent_key=sent_key)
+
+            # Đính kèm toàn bộ chuỗi khung xương thu nhận & chỉ số chuyển động thực tế
+            import numpy as np
+            T = len(frames_kp)
+            lhand = frames_kp[:, 285:348]
+            rhand = frames_kp[:, 348:411]
+            hand_present = (np.abs(lhand).sum(axis=-1) > 0) | (np.abs(rhand).sum(axis=-1) > 0)
+            hand_ratio = float(hand_present.mean()) if T > 0 else 0.0
+
+            kp_vel = np.zeros_like(frames_kp)
+            if T > 1:
+                kp_vel[1:] = frames_kp[1:] - frames_kp[:-1]
+            hand_vel = float(np.linalg.norm(kp_vel[:, 285:411], axis=-1).mean()) if T > 1 else 0.0
+
+            res["extracted_frames"] = np.round(frames_kp, 4).tolist()
+            res["diagnostics"] = {
+                "num_frames": T,
+                "duration_seconds": round(T / 25.0, 1),
+                "hand_ratio": round(hand_ratio * 100, 1),
+                "hand_velocity": round(hand_vel, 3),
+                "has_left_hand": bool(np.abs(lhand).sum() > 0),
+                "has_right_hand": bool(np.abs(rhand).sum() > 0),
+            }
+            return res
         except Exception as e:
             logger.error(f"[AI Engine] Không thể trích xuất keypoints từ video: {e}")
             return {
