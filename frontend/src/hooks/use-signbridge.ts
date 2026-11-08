@@ -58,8 +58,33 @@ export function useConfirmCase() {
 export function useDoctorReply() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ ticketNumber, message }: { ticketNumber: string; message: string }) =>
-      api.sendDoctorReply(ticketNumber, message),
+    mutationFn: ({
+      ticketNumber,
+      message,
+      category,
+    }: {
+      ticketNumber: string
+      message: string
+      category?: string
+    }) => api.sendDoctorReply(ticketNumber, message, category),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["queue"] })
+    },
+  })
+}
+
+export function useAcknowledgeDoctorReply() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      ticketNumber,
+      action,
+      note,
+    }: {
+      ticketNumber: string
+      action: "understood" | "yes" | "no" | "need_help"
+      note?: string
+    }) => api.acknowledgeDoctorReply(ticketNumber, action, note),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["queue"] })
     },

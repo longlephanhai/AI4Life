@@ -7,6 +7,7 @@ import { RecognitionPanel } from "@/components/kiosk/recognition-panel"
 import { ScenarioPicker } from "@/components/kiosk/scenario-picker"
 import { useToast } from "@/components/ui/toast"
 import {
+  useAcknowledgeDoctorReply,
   useConfirmCase,
   useParseSemantic,
   useQueue,
@@ -29,6 +30,7 @@ export function KioskWorkspace() {
   const recognizeMutation = useRecognizeVideo()
   const sampleKeypointsMutation = useSampleKeypoints()
   const confirmMutation = useConfirmCase()
+  const ackMutation = useAcknowledgeDoctorReply()
 
   const [activeScenarioId, setActiveScenarioId] = React.useState<string | null>(null)
   const [samplePlaybackData, setSamplePlaybackData] =
@@ -280,6 +282,25 @@ export function KioskWorkspace() {
     )
   }
 
+  const handleAcknowledge = (
+    action: "understood" | "yes" | "no" | "need_help",
+    note?: string,
+  ) => {
+    if (!activeTicket) return
+    ackMutation.mutate(
+      { ticketNumber: activeTicket, action, note },
+      {
+        onSuccess: () => {
+          pushToast({
+            title: "Đã phản hồi thành công",
+            description: "Bàn Tiếp Nhận đã nhận được xác nhận của bạn.",
+            tone: "success",
+          })
+        },
+      },
+    )
+  }
+
   const doctorReply =
     (activeTicket && queueQuery.data?.doctor_replies?.[activeTicket]) || null
 
@@ -355,6 +376,8 @@ export function KioskWorkspace() {
             onConfirm={handleConfirm}
             onOpenEdit={() => setIsEditOpen(true)}
             onRequestHumanHelp={handleRequestHumanHelp}
+            onAcknowledge={handleAcknowledge}
+            isAcking={ackMutation.isPending}
           />
         </div>
       </div>

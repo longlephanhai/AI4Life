@@ -46,11 +46,19 @@ export interface RecognizeResponse {
   semantic_frame: SemanticFrame
 }
 
+export interface PatientAck {
+  action: "understood" | "yes" | "no" | "need_help"
+  note: string
+  acked_at: string
+}
+
 export interface DoctorReply {
   ticket_number: string
   message: string
   clinician_name: string
   replied_at: string
+  category?: "insurance" | "direction" | "vital_signs" | "question_yes_no" | "emergency" | "general"
+  patient_ack?: PatientAck | null
 }
 
 export interface QueueCase {

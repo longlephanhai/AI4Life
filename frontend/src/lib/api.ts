@@ -71,13 +71,29 @@ export const api = {
   sendDoctorReply(
     ticketNumber: string,
     message: string,
+    category?: string,
   ): Promise<{ success: boolean; reply: DoctorReply }> {
     return requestJson<{ success: boolean; reply: DoctorReply }>(
       `/api/queue/${encodeURIComponent(ticketNumber)}/reply`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, category }),
+      },
+    )
+  },
+
+  acknowledgeDoctorReply(
+    ticketNumber: string,
+    action: "understood" | "yes" | "no" | "need_help",
+    note?: string,
+  ): Promise<{ success: boolean; patient_ack: import("./types").PatientAck }> {
+    return requestJson<{ success: boolean; patient_ack: import("./types").PatientAck }>(
+      `/api/queue/${encodeURIComponent(ticketNumber)}/ack`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, note }),
       },
     )
   },

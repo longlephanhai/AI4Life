@@ -263,18 +263,43 @@ def api_get_queue():
 class DoctorReplyRequest(BaseModel):
     message: str
     clinician_name: Optional[str] = "NV. Bàn Tiếp Nhận"
+    category: Optional[str] = None
+
+
+class PatientAckRequest(BaseModel):
+    action: str = "understood"  # "understood", "yes", "no", "need_help"
+    note: Optional[str] = None
 
 
 @app.post("/api/queue/{ticket_number}/reply")
 def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
     """
     Bác sĩ gửi phản hồi trực quan 1 chạm cho bệnh nhân tại Kiosk.
+    Tự động phân loại danh mục (category) để Kiosk hiển thị Icon minh họa & các nút tương tác tương ứng.
     """
+    msg = req.message.lower()
+    cat = req.category
+    if not cat:
+        if any(w in msg for w in ["bhyt", "cccd", "thẻ", "giấy tờ", "bảo hiểm"]):
+            cat = "insurance"
+        elif any(w in msg for w in ["bàn", "phòng", "sang", "đến", "bên cạnh"]):
+            cat = "direction"
+        elif any(w in msg for w in ["huyết áp", "nhiệt độ", "sinh hiệu", "thở", "đo"]):
+            cat = "vital_signs"
+        elif any(w in msg for w in ["cấp cứu", "nguy kịch", "ngay lập tức", "khẩn cấp"]):
+            cat = "emergency"
+        elif "?" in req.message or any(w in msg for w in ["không", "chưa", "bao lâu"]):
+            cat = "question_yes_no"
+        else:
+            cat = "general"
+
     reply_payload = {
         "ticket_number": ticket_number,
         "message": req.message,
         "clinician_name": req.clinician_name,
-        "replied_at": datetime.now().strftime("%H:%M:%S")
+        "category": cat,
+        "replied_at": datetime.now().strftime("%H:%M:%S"),
+        "patient_ack": None
     }
     DOCTOR_REPLIES[ticket_number] = reply_payload
     for c in CLINIC_QUEUE:
@@ -282,6 +307,44 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
             c["doctor_reply"] = reply_payload
             break
     return {"success": True, "reply": reply_payload}
+
+
+@app.post("/api/queue/{ticket_number}/ack")
+def api_patient_ack(ticket_number: str, req: PatientAckRequest):
+    """
+    Bệnh nhân tại Kiosk bấm nút phản hồi 1 chạm (Đã hiểu / Có / Không / Cần giúp)
+    gửi tín hiệu xác nhận trực tiếp ngược về Bàn Tiếp Nhận.
+    """
+    action_labels = {
+        "understood": "Đã hiểu & Đang thực hiện",
+        "yes": "CÓ / ĐÚNG",
+        "no": "KHÔNG",
+        "need_help": "Chưa hiểu — Cần người đến hỗ trợ trực tiếp"
+    }
+    label = req.note or action_labels.get(req.action, req.action)
+    ack_data = {
+        "action": req.action,
+        "note": label,
+        "acked_at": datetime.now().strftime("%H:%M:%S")
+    }
+
+    if ticket_number in DOCTOR_REPLIES:
+        DOCTOR_REPLIES[ticket_number]["patient_ack"] = ack_data
+
+    found = False
+    for c in CLINIC_QUEUE:
+        if c["ticket_number"] == ticket_number:
+            if not c.get("doctor_reply"):
+                c["doctor_reply"] = {"ticket_number": ticket_number, "message": "", "patient_ack": ack_data}
+            else:
+                c["doctor_reply"]["patient_ack"] = ack_data
+            found = True
+            break
+
+    if not found and ticket_number not in DOCTOR_REPLIES:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy phiếu {ticket_number}")
+
+    return {"success": True, "patient_ack": ack_data}
 
 
 @app.post("/api/queue/{ticket_number}/serve")
