@@ -99,23 +99,35 @@ class VSLInferenceEngine:
             self.trans_vocab = Vocab.load(str(TRANS_VOCAB_PATH))
             self.gloss_vocab = Vocab.load(str(GLOSS_VOCAB_PATH))
 
+            logger.info(f"[AI Engine] Đang nạp trọng số từ: {ckpt_path} lên {self.device}...")
+            ckpt = torch.load(str(ckpt_path), map_location=self.device)
+            model_state = ckpt.get("model_state", ckpt)
+
+            # Tự động suy diễn kiến trúc từ checkpoint để tương thích mọi phiên bản train
             m_cfg = self.cfg["model"]
+            d_model = model_state["input_proj.0.weight"].shape[0] if "input_proj.0.weight" in model_state else m_cfg["d_model"]
+            input_dim = model_state["input_proj.0.weight"].shape[1] if "input_proj.0.weight" in model_state else self.cfg["data"]["input_dim"]
+            gloss_vocab_size = model_state["ctc_head.weight"].shape[0] if "ctc_head.weight" in model_state else len(self.gloss_vocab)
+            trans_vocab_size = model_state["trans_head.weight"].shape[0] if "trans_head.weight" in model_state else len(self.trans_vocab)
+            dim_feedforward = model_state["encoder.layers.0.linear1.weight"].shape[0] if "encoder.layers.0.linear1.weight" in model_state else m_cfg["dim_feedforward"]
+            enc_layers = max([int(k.split(".")[2]) for k in model_state if k.startswith("encoder.layers.")] or [m_cfg["num_encoder_layers"] - 1]) + 1
+            dec_layers = max([int(k.split(".")[2]) for k in model_state if k.startswith("decoder.layers.")] or [m_cfg["num_decoder_layers"] - 1]) + 1
+
+            self.norm_version = ckpt.get("norm_version", 1 if gloss_vocab_size == 235 else 2)
+
             self.model = SLTModel(
-                input_dim=self.cfg["data"]["input_dim"],
-                gloss_vocab_size=len(self.gloss_vocab),
-                trans_vocab_size=len(self.trans_vocab),
-                d_model=m_cfg["d_model"],
+                input_dim=input_dim,
+                gloss_vocab_size=gloss_vocab_size,
+                trans_vocab_size=trans_vocab_size,
+                d_model=d_model,
                 nhead=m_cfg["nhead"],
-                num_encoder_layers=m_cfg["num_encoder_layers"],
-                num_decoder_layers=m_cfg["num_decoder_layers"],
-                dim_feedforward=m_cfg["dim_feedforward"],
+                num_encoder_layers=enc_layers,
+                num_decoder_layers=dec_layers,
+                dim_feedforward=dim_feedforward,
                 dropout=m_cfg["dropout"],
                 pad_idx=self.trans_vocab.pad_idx,
             ).to(self.device)
 
-            logger.info(f"[AI Engine] Đang nạp trọng số từ: {ckpt_path} lên {self.device}...")
-            ckpt = torch.load(str(ckpt_path), map_location=self.device)
-            model_state = ckpt.get("model_state", ckpt)
             self.model.load_state_dict(model_state, strict=False)
             self.model.eval()
 
@@ -362,8 +374,12 @@ class VSLInferenceEngine:
         import numpy as np
         kp = kp.copy()
         T = len(kp)
-        LS_X, LS_Y = 11*3, 11*3+1
-        RS_X, RS_Y = 12*3, 12*3+1
+        if getattr(self, "norm_version", 2) == 1:
+            LS_X, LS_Y = 11*3, 11*3+1
+            RS_X, RS_Y = 12*3, 12*3+1
+        else:
+            LS_X, LS_Y = 9*3, 9*3+1
+            RS_X, RS_Y = 10*3, 10*3+1
         ls_x, ls_y = kp[:, LS_X], kp[:, LS_Y]
         rs_x, rs_y = kp[:, RS_X], kp[:, RS_Y]
         cx = ((ls_x + rs_x) / 2).reshape(T, 1)
