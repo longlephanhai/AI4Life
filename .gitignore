@@ -33,3 +33,6 @@ scripts
 model
 
 video_demo  
+
+keypoint_viewer.html
+keypoint_viewer.py

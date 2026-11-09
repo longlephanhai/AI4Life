@@ -259,6 +259,35 @@ class VSLInferenceEngine:
 
                 hyp = self.trans_vocab.decode(preds[0].tolist())
                 translation = " ".join(hyp).capitalize()
+                words = [w for w in hyp if w not in [".", "?", ",", "!"]]
+
+                # 8. Chống ảo giác tự động điền nốt câu (Incomplete Gesture & Hallucination Guard)
+                PRONOUN_STARTERS = {"TÔI", "BẠN", "BÁC-SĨ", "ANH", "CHỊ", "CÔ", "CHÚ", "EM", "CHÚNG-TÔI", "NGƯỜI"}
+
+                # Trường hợp A: Người dùng mới chỉ làm 1 cử chỉ đại từ mở đầu (ví dụ: chỉ mới làm TÔI rồi đứng im)
+                if len(glosses) == 1 and glosses[0] in PRONOUN_STARTERS:
+                    starter = glosses[0]
+                    return {
+                        "is_recognized": False,
+                        "recognition_status": "low_confidence",
+                        "fallback_message": f"Hệ thống mới ghi nhận cử chỉ mở đầu: [{starter}]. Vui lòng tiếp tục thực hiện triệu chứng hoặc nhu cầu khám của bạn.",
+                        "gloss_sequence": glosses,
+                        "translation": f"{starter.capitalize()}...",
+                        "confidence": 0.45,
+                    }
+
+                # Trường hợp B: CTC chỉ thấy 1 động tác đơn lẻ bất kỳ, nhưng Decoder lại tự biên tự diễn câu dài >= 4 từ
+                if len(glosses) == 1 and len(words) >= 4:
+                    single_word = glosses[0]
+                    return {
+                        "is_recognized": False,
+                        "recognition_status": "low_confidence",
+                        "fallback_message": f"Cử chỉ chưa trọn vẹn (mới nhận diện được: [{single_word}]). Vui lòng thực hiện đầy đủ câu cử chỉ của bạn.",
+                        "gloss_sequence": glosses,
+                        "translation": f"{single_word.capitalize()}...",
+                        "confidence": 0.42,
+                    }
+
                 if not glosses:
                     glosses = [w.upper() for w in hyp if w not in [".", "?", ","]]
 
