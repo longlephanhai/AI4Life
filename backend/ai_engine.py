@@ -368,7 +368,7 @@ class VSLInferenceEngine:
             res["extracted_frames"] = np.round(frames_kp, 4).tolist()
             res["diagnostics"] = {
                 "num_frames": T,
-                "duration_seconds": round(T / 25.0, 1),
+                "duration_seconds": round(T / 30.0, 1),
                 "hand_ratio": round(hand_ratio * 100, 1),
                 "hand_velocity": round(hand_vel, 3),
                 "has_left_hand": bool(np.abs(lhand).sum() > 0),
@@ -443,6 +443,64 @@ class VSLInferenceEngine:
 
         return kp_out
 
+    def _resample_to_fps(self, frames_kp, timestamps_sec, target_fps: float = 30.0):
+        """
+        Chuẩn hóa chuỗi keypoint về đúng tốc độ 30 FPS theo thời gian thực
+        để vector vận tốc kp_vel khớp với dữ liệu huấn luyện VSL-GH.
+        Tránh nội suy giữa điểm 0 (mất dấu) và điểm có tọa độ thật.
+        """
+        import numpy as np
+        T = len(frames_kp)
+        if T < 2 or len(timestamps_sec) != T:
+            return frames_kp
+
+        ts = np.asarray(timestamps_sec, dtype=np.float64)
+        duration = float(ts[-1] - ts[0])
+        if duration <= 0.05:
+            return frames_kp
+
+        actual_fps = (T - 1) / duration
+        if abs(actual_fps - target_fps) < 1.5:
+            return frames_kp
+
+        max_len = 300
+        if self.cfg and "data" in self.cfg:
+            max_len = int(self.cfg["data"].get("max_seq_len", 300))
+
+        target_T = min(max(2, int(round(duration * target_fps)) + 1), max_len)
+        t_new = np.linspace(ts[0], ts[-1], target_T)
+
+        idx_hi = np.searchsorted(ts, t_new, side="right")
+        idx_hi = np.clip(idx_hi, 1, T - 1)
+        idx_lo = idx_hi - 1
+
+        dt = np.maximum(ts[idx_hi] - ts[idx_lo], 1e-6)
+        w = ((t_new - ts[idx_lo]) / dt).reshape(-1, 1)
+
+        v_lo = frames_kp[idx_lo]
+        v_hi = frames_kp[idx_hi]
+        both_valid = (v_lo != 0.0) & (v_hi != 0.0)
+        nearest = np.where(w < 0.5, v_lo, v_hi)
+        linear = (1.0 - w) * v_lo + w * v_hi
+        return np.where(both_valid, linear, nearest).astype(np.float32)
+
+    def _smooth_landmarks(self, frames_kp, alpha: float = 0.65):
+        """
+        Làm mượt nhẹ (EMA) các landmark liên tiếp có giá trị khác 0
+        để giảm nhiễu rung tọa độ khi quay webcam trong điều kiện thiếu sáng.
+        """
+        import numpy as np
+        if len(frames_kp) < 3:
+            return frames_kp
+
+        smoothed = frames_kp.copy()
+        for t in range(1, len(smoothed)):
+            cur = smoothed[t]
+            prev = smoothed[t - 1]
+            valid = (cur != 0.0) & (prev != 0.0)
+            smoothed[t] = np.where(valid, alpha * cur + (1.0 - alpha) * prev, cur)
+        return smoothed
+
     def _extract_keypoints(self, video_path: str):
         import cv2
         import numpy as np
@@ -453,7 +511,10 @@ class VSLInferenceEngine:
         TOTAL_DIM = 411
 
         cap = cv2.VideoCapture(str(video_path))
+        reported_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        fallback_fps = reported_fps if 1.0 <= reported_fps <= 120.0 else 30.0
         frames = []
+        timestamps_sec = []
         with mp_lib.solutions.holistic.Holistic(
             static_image_mode=False,
             model_complexity=1,
@@ -464,6 +525,9 @@ class VSLInferenceEngine:
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret: break
+
+                pos_msec = float(cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
+                timestamps_sec.append(pos_msec / 1000.0)
 
                 # Cắt vuông trung tâm để bảo toàn tỉ lệ 1:1 giải phẫu học
                 frame_sq = self._crop_center_square(frame)
@@ -495,7 +559,20 @@ class VSLInferenceEngine:
 
         raw_arr = np.array(frames, dtype=np.float32)
         # Bù đắp nội suy các frame mất tay để chuỗi chuyển động liên tục
-        return self._interpolate_hands(raw_arr)
+        kp_interp = self._interpolate_hands(raw_arr)
+
+        # Kiểm tra tính hợp lệ của timestamp; nếu webm không ghi POS_MSEC thì dùng fallback_fps
+        ts_arr = np.asarray(timestamps_sec, dtype=np.float64)
+        valid_ts = (
+            len(ts_arr) >= 2
+            and np.all(np.diff(ts_arr) > 0)
+            and (ts_arr[-1] - ts_arr[0]) > 0.05
+        )
+        if not valid_ts:
+            ts_arr = np.arange(len(kp_interp), dtype=np.float64) / fallback_fps
+
+        kp_30fps = self._resample_to_fps(kp_interp, ts_arr, target_fps=30.0)
+        return self._smooth_landmarks(kp_30fps)
 
     def _normalize_skeleton(self, kp):
         import numpy as np

@@ -812,7 +812,19 @@ export function CameraStage({
         )}
 
         {isCameraOn && (
-          <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3">
+          <>
+            {/* Khung dẫn hướng 1:1 khớp với vùng _crop_center_square trên backend */}
+            <div className="pointer-events-none absolute inset-0 flex items-stretch justify-center">
+              <div className="flex-1 bg-slate-950/45" />
+              <div className="relative aspect-square h-full border-2 border-dashed border-emerald-400/75 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.2)]">
+                <span className="absolute top-2.5 right-2.5 rounded-full bg-slate-950/75 px-2.5 py-0.5 text-[11px] font-medium text-emerald-300 backdrop-blur-sm">
+                  Giữ đầu &amp; hai tay trong khung 1:1
+                </span>
+              </div>
+              <div className="flex-1 bg-slate-950/45" />
+            </div>
+
+            <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 rounded-full bg-background/85 px-3 py-1.5 text-xs font-medium backdrop-blur-md shadow-sm">
                 {isRecording ? (
@@ -864,6 +876,7 @@ export function CameraStage({
               </span>
             </div>
           </div>
+          </>
         )}
       </div>
 
