@@ -10,6 +10,7 @@ import {
   HeartPulse,
   HelpCircle,
   MessageSquareHeart,
+  Plus,
   Send,
   ThumbsUp,
   X,
@@ -28,6 +29,8 @@ interface ConfirmationBannerProps {
   doctorReply: DoctorReply | null
   onConfirm: () => void
   onOpenEdit: () => void
+  onAppendCameraClause?: () => void
+  isAppendingClause?: boolean
   onRequestHumanHelp: () => void
   onAcknowledge?: (action: "understood" | "yes" | "no" | "need_help", note?: string) => void
   isAcking?: boolean
@@ -43,6 +46,8 @@ export function ConfirmationBanner({
   doctorReply,
   onConfirm,
   onOpenEdit,
+  onAppendCameraClause,
+  isAppendingClause = false,
   onRequestHumanHelp,
   onAcknowledge,
   isAcking = false,
@@ -212,6 +217,22 @@ export function ConfirmationBanner({
               Chọn Lại
             </Button>
           </div>
+
+          {onAppendCameraClause && (
+            <Button
+              type="button"
+              size="sm"
+              variant={isAppendingClause ? "default" : "secondary"}
+              disabled={!translation}
+              onClick={onAppendCameraClause}
+              className="w-full justify-center gap-1.5 font-semibold"
+            >
+              <Plus className="size-4" aria-hidden />
+              {isAppendingClause
+                ? "Đang chờ quay thêm ý tiếp theo (Bấm để hủy)"
+                : "Quay thêm ý / triệu chứng khác (Camera)"}
+            </Button>
+          )}
 
           <div className="flex items-center justify-between border-t pt-2.5">
             <button

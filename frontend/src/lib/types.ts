@@ -42,6 +42,7 @@ export interface MotionDiagnostics {
   hand_velocity: number
   has_left_hand: boolean
   has_right_hand: boolean
+  clauses?: string[] | null
 }
 
 export interface RecognizeResponse {

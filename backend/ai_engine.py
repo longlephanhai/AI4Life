@@ -139,166 +139,339 @@ class VSLInferenceEngine:
             logger.warning(f"[AI Engine] Không thể khởi tạo mô hình PyTorch: {e}. Hệ thống sẽ dùng chế độ an toàn.")
             self.is_ready = False
 
+    def _predict_single_window(self, frames_kp) -> dict:
+        """
+        Chạy suy luận 1 cửa sổ chuỗi keypoints (T, 411) qua mô hình PyTorch SLTModel.
+        """
+        import numpy as np
+        import torch
+        import torch.nn.functional as F
+
+        max_seq_len = int(self.cfg["data"]["max_seq_len"])
+        T = min(len(frames_kp), max_seq_len)
+
+        # 1. Kiểm tra độ dài tối thiểu của chuỗi
+        if T < 8:
+            return {
+                "is_recognized": False,
+                "recognition_status": "invalid_video",
+                "fallback_message": "Thời lượng ghi hình quá ngắn (dưới 0.5 giây). Vui lòng thực hiện cử chỉ từ 2–5 giây.",
+                "gloss_sequence": [],
+                "translation": "",
+                "confidence": 0.0,
+            }
+
+        # 2. Kiểm tra sự hiện diện của bàn tay trong khung hình (285:411 là Left + Right Hand)
+        lhand = frames_kp[:T, 285:348]
+        rhand = frames_kp[:T, 348:411]
+        hand_present = (np.abs(lhand).sum(axis=-1) > 0) | (np.abs(rhand).sum(axis=-1) > 0)
+        hand_ratio = float(hand_present.mean())
+
+        if hand_ratio < 0.15:
+            return {
+                "is_recognized": False,
+                "recognition_status": "hands_not_detected",
+                "fallback_message": "Không phát hiện rõ hai bàn tay trong khung hình. Vui lòng đưa tay vào vùng trung tâm camera và thử lại.",
+                "gloss_sequence": [],
+                "translation": "",
+                "confidence": round(hand_ratio * 0.4, 2),
+            }
+
+        # 3. Chuẩn hóa khung xương & tính vận tốc chuyển động tay (Hand Velocity)
+        kp = self._normalize_skeleton(frames_kp[:T])
+        kp_vel = np.zeros_like(kp)
+        if T > 1:
+            kp_vel[1:] = kp[1:] - kp[:-1]
+
+        hand_vel = float(np.linalg.norm(kp_vel[:, 285:411], axis=-1).mean())
+        if hand_vel < 0.02:
+            return {
+                "is_recognized": False,
+                "recognition_status": "no_movement",
+                "fallback_message": "Chưa phát hiện động tác ký hiệu rõ ràng. Vui lòng thực hiện lại cử chỉ tay.",
+                "gloss_sequence": [],
+                "translation": "",
+                "confidence": 0.15,
+            }
+
+        kp_combined = np.concatenate([kp, kp_vel], axis=-1)
+        src = torch.from_numpy(kp_combined).float().unsqueeze(0).to(self.device)
+        src_mask = torch.zeros(1, T, dtype=torch.bool).to(self.device)
+
+        with torch.no_grad():
+            # 4. Giải mã CTC Gloss trực tiếp từ Visual Encoder (không bị nhiễu bởi Language Model)
+            memory = self.model.encode(src, src_key_padding_mask=src_mask)
+            ctc_logits = self.model.ctc_head(memory)
+            ctc_probs = F.softmax(ctc_logits, dim=-1)[0]
+            max_ctc_probs, ctc_preds = ctc_probs.max(dim=-1)
+            blank_idx = self.gloss_vocab.blank_idx
+
+            ctc_seq = []
+            prev = -1
+            for idx_val in ctc_preds.tolist():
+                if idx_val != prev and idx_val != blank_idx:
+                    ctc_seq.append(idx_val)
+                prev = idx_val
+            glosses = self.gloss_vocab.decode(ctc_seq)
+            non_blank = ctc_preds != blank_idx
+            ctc_conf = float(max_ctc_probs[non_blank].mean()) if non_blank.any() else 0.0
+
+            # 5. Giải mã câu dịch kèm xác suất Softmax thực tế của từng từ
+            preds, batch_probs = self.model.greedy_decode(
+                src, src_mask,
+                bos_idx=self.trans_vocab.bos_idx,
+                eos_idx=self.trans_vocab.eos_idx,
+                max_len=self.cfg.get("evaluation", {}).get("max_decode_len", 30),
+                return_probs=True,
+            )
+
+        token_probs = batch_probs[0] if batch_probs else []
+        avg_prob = float(np.mean(token_probs)) if token_probs else 0.0
+
+        # 6. Chặn Out-of-Vocabulary (nới lỏng ngưỡng OOD từ 0.55 xuống 0.38 để phù hợp người thật)
+        if avg_prob < 0.38:
+            conf = round(avg_prob, 2)
+            return {
+                "is_recognized": False,
+                "recognition_status": "out_of_vocabulary",
+                "fallback_message": "Cử chỉ chưa khớp với bộ từ điển của mô hình. Vui lòng thực hiện lại rõ ràng hơn hoặc sử dụng công cụ hỗ trợ bên dưới.",
+                "gloss_sequence": [],
+                "translation": "",
+                "confidence": conf,
+            }
+
+        # 7. Tính độ tin cậy tổng hợp
+        effective_ctc = ctc_conf if len(glosses) > 0 else avg_prob
+        confidence = round(0.4 * effective_ctc + 0.6 * avg_prob, 3)
+
+        # Nới lỏng ngưỡng chấp nhận từ 0.58 xuống 0.40
+        if confidence < 0.40:
+            return {
+                "is_recognized": False,
+                "recognition_status": "low_confidence",
+                "fallback_message": f"Mức độ tin cậy nhận diện thấp ({int(confidence * 100)}%). Bạn có thể làm lại hoặc dùng sơ đồ chỉ điểm bên dưới.",
+                "gloss_sequence": glosses,
+                "translation": "",
+                "confidence": confidence,
+            }
+
+        hyp = self.trans_vocab.decode(preds[0].tolist())
+        translation = " ".join(hyp).capitalize()
+        words = [w for w in hyp if w not in [".", "?", ",", "!"]]
+
+        # 8. Chống ảo giác tự động điền nốt câu (Incomplete Gesture & Hallucination Guard)
+        PRONOUN_STARTERS = {"TÔI", "BẠN", "BÁC-SĨ", "ANH", "CHỊ", "CÔ", "CHÚ", "EM", "CHÚNG-TÔI", "NGƯỜI"}
+
+        # Trường hợp A: Người dùng mới chỉ làm 1 cử chỉ đại từ mở đầu (ví dụ: chỉ mới làm TÔI rồi đứng im)
+        if len(glosses) == 1 and glosses[0] in PRONOUN_STARTERS:
+            starter = glosses[0]
+            return {
+                "is_recognized": False,
+                "recognition_status": "low_confidence",
+                "fallback_message": f"Hệ thống mới ghi nhận cử chỉ mở đầu: [{starter}]. Vui lòng tiếp tục thực hiện triệu chứng hoặc nhu cầu khám của bạn.",
+                "gloss_sequence": glosses,
+                "translation": f"{starter.capitalize()}...",
+                "confidence": 0.45,
+            }
+
+        # Trường hợp B: CTC chỉ thấy 1 động tác đơn lẻ bất kỳ, nhưng Decoder lại tự biên tự diễn câu dài >= 4 từ
+        if len(glosses) == 1 and len(words) >= 4:
+            single_word = glosses[0]
+            return {
+                "is_recognized": False,
+                "recognition_status": "low_confidence",
+                "fallback_message": f"Cử chỉ chưa trọn vẹn (mới nhận diện được: [{single_word}]). Vui lòng thực hiện đầy đủ câu cử chỉ của bạn.",
+                "gloss_sequence": glosses,
+                "translation": f"{single_word.capitalize()}...",
+                "confidence": 0.42,
+            }
+
+        if not glosses:
+            glosses = [w.upper() for w in hyp if w not in [".", "?", ","]]
+
+        return {
+            "is_recognized": True,
+            "recognition_status": "recognized",
+            "fallback_message": None,
+            "gloss_sequence": glosses,
+            "translation": translation,
+            "confidence": confidence,
+        }
+
+    def _split_by_pauses(
+        self,
+        frames_kp,
+        vel_threshold: float = 0.03,
+        min_pause_frames: int = 10,
+        min_segment_frames: int = 24,
+    ) -> List:
+        """
+        Tách chuỗi keypoint dài thành các đoạn câu độc lập dựa trên khoảng nghỉ
+        (tay hạ/đứng yên liên tiếp >= min_pause_frames).
+        """
+        import numpy as np
+
+        T = len(frames_kp)
+        if T < (min_segment_frames * 2 + min_pause_frames):
+            return []
+
+        kp_norm = self._normalize_skeleton(frames_kp)
+        vel = np.zeros_like(kp_norm)
+        vel[1:] = kp_norm[1:] - kp_norm[:-1]
+        hand_vel = np.linalg.norm(vel[:, 285:411], axis=-1)
+
+        lhand = frames_kp[:, 285:348]
+        rhand = frames_kp[:, 348:411]
+        hand_present = (np.abs(lhand).sum(axis=-1) > 0) | (np.abs(rhand).sum(axis=-1) > 0)
+        active = hand_present & (hand_vel >= vel_threshold)
+
+        # Tìm các khoảng nghỉ (active == False) liên tiếp >= min_pause_frames
+        pause_runs = []
+        run_start = None
+        for idx, is_act in enumerate(active):
+            if not is_act and run_start is None:
+                run_start = idx
+            elif is_act and run_start is not None:
+                if idx - run_start >= min_pause_frames:
+                    pause_runs.append((run_start, idx))
+                run_start = None
+        if run_start is not None and (T - run_start) >= min_pause_frames:
+            pause_runs.append((run_start, T))
+
+        segments = []
+        cursor = 0
+        for p_start, p_end in pause_runs:
+            if p_start - cursor >= min_segment_frames:
+                segments.append(frames_kp[cursor:p_start])
+            cursor = p_end
+        if T - cursor >= min_segment_frames:
+            segments.append(frames_kp[cursor:T])
+
+        return segments if len(segments) >= 2 else []
+
+    @staticmethod
+    def _normalize_clause_key(text: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"[.?!,;]+", " ", text.lower())).strip()
+
+    @staticmethod
+    def _format_clause_text(text: str) -> str:
+        cleaned = re.sub(r"\s+([.?!,])", r"\1", text.strip())
+        if cleaned and cleaned[-1] not in ".?!":
+            cleaned += "."
+        return cleaned
+
+    def _merge_clause_results(self, clause_results: List[dict]) -> Optional[dict]:
+        """Gộp nhiều câu nhận diện được từ một video dài thành 1 kết quả thống nhất (khử trùng toàn cục)."""
+        valid = [r for r in clause_results if r.get("is_recognized") and r.get("translation")]
+        if not valid:
+            return None
+
+        deduped: List[dict] = []
+        seen_idx: dict = {}
+        for r in valid:
+            key = self._normalize_clause_key(r["translation"])
+            if not key:
+                continue
+            if key in seen_idx:
+                idx = seen_idx[key]
+                if r["confidence"] > deduped[idx]["confidence"]:
+                    deduped[idx] = r
+                continue
+            seen_idx[key] = len(deduped)
+            deduped.append(r)
+
+        if not deduped:
+            return None
+        if len(deduped) == 1:
+            return deduped[0]
+
+        merged_text = " ".join(self._format_clause_text(r["translation"]) for r in deduped)
+        merged_glosses: List[str] = []
+        for r in deduped:
+            merged_glosses.extend(r.get("gloss_sequence") or [])
+        avg_conf = round(sum(r["confidence"] for r in deduped) / len(deduped), 3)
+
+        return {
+            "is_recognized": True,
+            "recognition_status": "recognized",
+            "fallback_message": None,
+            "gloss_sequence": merged_glosses,
+            "translation": merged_text,
+            "confidence": avg_conf,
+            "clauses": [self._format_clause_text(r["translation"]) for r in deduped],
+        }
+
+    def _predict_sliding_windows(
+        self,
+        frames_kp,
+        window_size: int = 90,
+        stride: int = 35,
+        min_window_conf: float = 0.88,
+    ) -> Optional[dict]:
+        """
+        Cửa sổ trượt cho video dài ký hiệu liên tiếp không có khoảng nghỉ rõ ràng.
+        Chỉ giữ các cửa sổ đạt độ tin cậy cao để tránh tách vỡ câu đơn.
+        """
+        T = len(frames_kp)
+        if T <= window_size + 25:
+            return None
+
+        starts = list(range(0, max(1, T - window_size + 1), stride))
+        last_start = T - window_size
+        if last_start > starts[-1]:
+            starts.append(last_start)
+
+        candidates: List[dict] = []
+        for s in starts:
+            chunk = frames_kp[s : s + window_size]
+            res = self._predict_single_window(chunk)
+            if res.get("is_recognized") and res.get("confidence", 0.0) >= min_window_conf:
+                candidates.append(res)
+
+        merged = self._merge_clause_results(candidates)
+        if merged and len(merged.get("clauses", [])) >= 2:
+            return merged
+        return None
+
     def predict_keypoints(self, frames_kp, sent_key: Optional[str] = None) -> dict:
         """
         Chạy suy luận trực tiếp trên mảng keypoints (T, 411) qua mô hình PyTorch SLTModel.
+        Hỗ trợ tự động tách câu nếu video dài có khoảng nghỉ giữa các ý hoặc nhiều câu nối tiếp.
         """
         if self.is_ready:
             try:
-                import numpy as np
-                import torch
-                import torch.nn.functional as F
+                T_total = len(frames_kp)
+                max_seq_len = int(self.cfg["data"]["max_seq_len"])
 
-                T = min(len(frames_kp), self.cfg["data"]["max_seq_len"])
+                # 1. Thử tách theo khoảng nghỉ chuyển động tay (pause segmentation) cho video dài
+                segments = self._split_by_pauses(frames_kp)
+                if segments:
+                    seg_results = [self._predict_single_window(seg) for seg in segments]
+                    merged_pause = self._merge_clause_results(seg_results)
+                    if merged_pause:
+                        return merged_pause
 
-                # 1. Kiểm tra độ dài tối thiểu của chuỗi
-                if T < 8:
-                    return {
-                        "is_recognized": False,
-                        "recognition_status": "invalid_video",
-                        "fallback_message": "Thời lượng ghi hình quá ngắn (dưới 0.5 giây). Vui lòng thực hiện cử chỉ từ 2–5 giây.",
-                        "gloss_sequence": [],
-                        "translation": "",
-                        "confidence": 0.0,
-                    }
+                # 2. Suy luận 1 cửa sổ chuẩn (giữ nguyên độ chính xác cho câu đơn)
+                single_res = self._predict_single_window(frames_kp[:max_seq_len])
 
-                # 2. Kiểm tra sự hiện diện của bàn tay trong khung hình (285:411 là Left + Right Hand)
-                lhand = frames_kp[:T, 285:348]
-                rhand = frames_kp[:T, 348:411]
-                hand_present = (np.abs(lhand).sum(axis=-1) > 0) | (np.abs(rhand).sum(axis=-1) > 0)
-                hand_ratio = float(hand_present.mean())
+                # 3. Nếu chuỗi dài (>4.5s) và câu đơn fail hoặc chưa thật sự chắc chắn (>7s hoặc conf < 0.94)
+                if T_total > 140 and (
+                    not single_res.get("is_recognized")
+                    or T_total > 210
+                    or single_res.get("confidence", 0.0) < 0.94
+                ):
+                    slid = self._predict_sliding_windows(frames_kp)
+                    if slid and (
+                        not single_res.get("is_recognized")
+                        or T_total > 210
+                        or (
+                            slid.get("confidence", 0.0) >= 0.93
+                            and slid.get("confidence", 0.0) > single_res.get("confidence", 0.0)
+                        )
+                    ):
+                        return slid
 
-                if hand_ratio < 0.15:
-                    return {
-                        "is_recognized": False,
-                        "recognition_status": "hands_not_detected",
-                        "fallback_message": "Không phát hiện rõ hai bàn tay trong khung hình. Vui lòng đưa tay vào vùng trung tâm camera và thử lại.",
-                        "gloss_sequence": [],
-                        "translation": "",
-                        "confidence": round(hand_ratio * 0.4, 2),
-                    }
-
-                # 3. Chuẩn hóa khung xương & tính vận tốc chuyển động tay (Hand Velocity)
-                kp = self._normalize_skeleton(frames_kp[:T])
-                kp_vel = np.zeros_like(kp)
-                if T > 1:
-                    kp_vel[1:] = kp[1:] - kp[:-1]
-
-                hand_vel = float(np.linalg.norm(kp_vel[:, 285:411], axis=-1).mean())
-                if hand_vel < 0.02:
-                    return {
-                        "is_recognized": False,
-                        "recognition_status": "no_movement",
-                        "fallback_message": "Chưa phát hiện động tác ký hiệu rõ ràng. Vui lòng thực hiện lại cử chỉ tay.",
-                        "gloss_sequence": [],
-                        "translation": "",
-                        "confidence": 0.15,
-                    }
-
-                kp_combined = np.concatenate([kp, kp_vel], axis=-1)
-                src = torch.from_numpy(kp_combined).float().unsqueeze(0).to(self.device)
-                src_mask = torch.zeros(1, T, dtype=torch.bool).to(self.device)
-
-                with torch.no_grad():
-                    # 4. Giải mã CTC Gloss trực tiếp từ Visual Encoder (không bị nhiễu bởi Language Model)
-                    memory = self.model.encode(src, src_key_padding_mask=src_mask)
-                    ctc_logits = self.model.ctc_head(memory)
-                    ctc_probs = F.softmax(ctc_logits, dim=-1)[0]
-                    max_ctc_probs, ctc_preds = ctc_probs.max(dim=-1)
-                    blank_idx = self.gloss_vocab.blank_idx
-
-                    ctc_seq = []
-                    prev = -1
-                    for idx_val in ctc_preds.tolist():
-                        if idx_val != prev and idx_val != blank_idx:
-                            ctc_seq.append(idx_val)
-                        prev = idx_val
-                    glosses = self.gloss_vocab.decode(ctc_seq)
-                    non_blank = ctc_preds != blank_idx
-                    ctc_conf = float(max_ctc_probs[non_blank].mean()) if non_blank.any() else 0.0
-
-                    # 5. Giải mã câu dịch kèm xác suất Softmax thực tế của từng từ
-                    preds, batch_probs = self.model.greedy_decode(
-                        src, src_mask,
-                        bos_idx=self.trans_vocab.bos_idx,
-                        eos_idx=self.trans_vocab.eos_idx,
-                        max_len=self.cfg.get("evaluation", {}).get("max_decode_len", 30),
-                        return_probs=True,
-                    )
-
-                token_probs = batch_probs[0] if batch_probs else []
-                avg_prob = float(np.mean(token_probs)) if token_probs else 0.0
-                p25_prob = float(np.percentile(token_probs, 25)) if token_probs else 0.0
-
-                # 6. Chặn Out-of-Vocabulary (nới lỏng ngưỡng OOD từ 0.55 xuống 0.38 để phù hợp người thật)
-                if avg_prob < 0.38:
-                    conf = round(avg_prob, 2)
-                    return {
-                        "is_recognized": False,
-                        "recognition_status": "out_of_vocabulary",
-                        "fallback_message": "Cử chỉ chưa khớp với bộ từ điển của mô hình. Vui lòng thực hiện lại rõ ràng hơn hoặc sử dụng công cụ hỗ trợ bên dưới.",
-                        "gloss_sequence": [],
-                        "translation": "",
-                        "confidence": conf,
-                    }
-
-                # 7. Tính độ tin cậy tổng hợp
-                effective_ctc = ctc_conf if len(glosses) > 0 else avg_prob
-                confidence = round(0.4 * effective_ctc + 0.6 * avg_prob, 3)
-
-                # Nới lỏng ngưỡng chấp nhận từ 0.58 xuống 0.40
-                if confidence < 0.40:
-                    return {
-                        "is_recognized": False,
-                        "recognition_status": "low_confidence",
-                        "fallback_message": f"Mức độ tin cậy nhận diện thấp ({int(confidence * 100)}%). Bạn có thể làm lại hoặc dùng sơ đồ chỉ điểm bên dưới.",
-                        "gloss_sequence": glosses,
-                        "translation": "",
-                        "confidence": confidence,
-                    }
-
-                hyp = self.trans_vocab.decode(preds[0].tolist())
-                translation = " ".join(hyp).capitalize()
-                words = [w for w in hyp if w not in [".", "?", ",", "!"]]
-
-                # 8. Chống ảo giác tự động điền nốt câu (Incomplete Gesture & Hallucination Guard)
-                PRONOUN_STARTERS = {"TÔI", "BẠN", "BÁC-SĨ", "ANH", "CHỊ", "CÔ", "CHÚ", "EM", "CHÚNG-TÔI", "NGƯỜI"}
-
-                # Trường hợp A: Người dùng mới chỉ làm 1 cử chỉ đại từ mở đầu (ví dụ: chỉ mới làm TÔI rồi đứng im)
-                if len(glosses) == 1 and glosses[0] in PRONOUN_STARTERS:
-                    starter = glosses[0]
-                    return {
-                        "is_recognized": False,
-                        "recognition_status": "low_confidence",
-                        "fallback_message": f"Hệ thống mới ghi nhận cử chỉ mở đầu: [{starter}]. Vui lòng tiếp tục thực hiện triệu chứng hoặc nhu cầu khám của bạn.",
-                        "gloss_sequence": glosses,
-                        "translation": f"{starter.capitalize()}...",
-                        "confidence": 0.45,
-                    }
-
-                # Trường hợp B: CTC chỉ thấy 1 động tác đơn lẻ bất kỳ, nhưng Decoder lại tự biên tự diễn câu dài >= 4 từ
-                if len(glosses) == 1 and len(words) >= 4:
-                    single_word = glosses[0]
-                    return {
-                        "is_recognized": False,
-                        "recognition_status": "low_confidence",
-                        "fallback_message": f"Cử chỉ chưa trọn vẹn (mới nhận diện được: [{single_word}]). Vui lòng thực hiện đầy đủ câu cử chỉ của bạn.",
-                        "gloss_sequence": glosses,
-                        "translation": f"{single_word.capitalize()}...",
-                        "confidence": 0.42,
-                    }
-
-                if not glosses:
-                    glosses = [w.upper() for w in hyp if w not in [".", "?", ","]]
-
-                return {
-                    "is_recognized": True,
-                    "recognition_status": "recognized",
-                    "fallback_message": None,
-                    "gloss_sequence": glosses,
-                    "translation": translation,
-                    "confidence": confidence,
-                }
+                return single_res
             except Exception as e:
                 logger.error(f"[AI Engine] Lỗi khi chạy suy luận thực tế: {e}")
 
@@ -373,6 +546,7 @@ class VSLInferenceEngine:
                 "hand_velocity": round(hand_vel, 3),
                 "has_left_hand": bool(np.abs(lhand).sum() > 0),
                 "has_right_hand": bool(np.abs(rhand).sum() > 0),
+                "clauses": res.get("clauses"),
             }
             return res
         except Exception as e:
@@ -463,9 +637,9 @@ class VSLInferenceEngine:
         if abs(actual_fps - target_fps) < 1.5:
             return frames_kp
 
-        max_len = 300
+        max_len = 900
         if self.cfg and "data" in self.cfg:
-            max_len = int(self.cfg["data"].get("max_seq_len", 300))
+            max_len = max(int(self.cfg["data"].get("max_seq_len", 300)), 900)
 
         target_T = min(max(2, int(round(duration * target_fps)) + 1), max_len)
         t_new = np.linspace(ts[0], ts[-1], target_T)

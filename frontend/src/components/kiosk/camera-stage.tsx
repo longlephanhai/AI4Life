@@ -639,7 +639,7 @@ export function CameraStage({
       timerRef.current = window.setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000)
         setRecordDuration(elapsed)
-        if (elapsed >= 8) {
+        if (elapsed >= 20) {
           if (recorder.state !== "inactive") {
             recorder.stop()
           }
@@ -686,7 +686,7 @@ export function CameraStage({
 
           <Badge variant={isRecording ? "destructive" : isCameraOn || isAnalyzing ? "accent" : "secondary"}>
             {isRecording
-              ? `Đang ghi: 00:0${recordDuration}s / 8s`
+              ? `Đang ghi: 00:${String(recordDuration).padStart(2, "0")}s / 20s`
               : isAnalyzing || isLoadingSample
                 ? "Đang suy luận SLTModel..."
                 : isCameraOn
@@ -829,7 +829,7 @@ export function CameraStage({
                   <>
                     <span className="size-2.5 animate-ping rounded-full bg-red-600" />
                     <span className="font-semibold text-red-600 dark:text-red-400">
-                      Đang thu cử chỉ: 00:0{recordDuration}s (Hãy thực hiện ký hiệu)
+                      Đang thu cử chỉ: 00:${String(recordDuration).padStart(2, "0")}s (Nghỉ 0.5s giữa các câu hoặc bấm Dừng)
                     </span>
                   </>
                 ) : !isTrackerReady ? (
@@ -899,7 +899,7 @@ export function CameraStage({
                 onClick={stopRecording}
               >
                 <Square className="size-4 fill-current" />
-                Dừng & Dịch Ngay (00:0{recordDuration}s)
+                Dừng &amp; Dịch Ngay (00:{String(recordDuration).padStart(2, "0")}s)
               </Button>
             ) : (
               <Button

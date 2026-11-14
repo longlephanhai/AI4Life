@@ -1,5 +1,6 @@
 import * as React from "react"
-import { Video } from "lucide-react"
+import { Video, X } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { CameraStage } from "@/components/kiosk/camera-stage"
 import { ConfirmationBanner } from "@/components/kiosk/confirmation-banner"
@@ -45,9 +46,58 @@ export function KioskWorkspace() {
   const [frame, setFrame] = React.useState<SemanticFrame | null>(null)
   const [activeVideoName, setActiveVideoName] = React.useState<string | null>(null)
   const [activeTicket, setActiveTicket] = React.useState<string | null>(null)
+  const [capturedClauses, setCapturedClauses] = React.useState<
+    Array<{ translation: string; glosses: string[]; confidence: number }>
+  >([])
+  const [isAppendingClause, setIsAppendingClause] = React.useState(false)
 
   // Người dùng chủ động mở bảng chạm trực quan Zero-Typing (khi không thuộc ký hiệu hoặc muốn chọn lại)
   const [forceShowFallback, setForceShowFallback] = React.useState(false)
+
+  const syncMergedClauses = React.useCallback(
+    (
+      nextClauses: Array<{
+        translation: string
+        glosses: string[]
+        confidence: number
+      }>,
+    ) => {
+      setCapturedClauses(nextClauses)
+      if (nextClauses.length === 0) {
+        setGlosses([])
+        setTranslation("")
+        setConfidence(0)
+        setFrame(null)
+        return
+      }
+      const formatClause = (txt: string) => {
+        const cleaned = txt.trim().replace(/\s+([.?!,])/g, "$1")
+        if (!cleaned) return ""
+        return /[.?!]$/.test(cleaned) ? cleaned : `${cleaned}.`
+      }
+      const mergedText = nextClauses
+        .map((c) => formatClause(c.translation))
+        .filter(Boolean)
+        .join(" ")
+      const mergedGlosses = nextClauses.flatMap((c) => c.glosses)
+      const avgConf =
+        nextClauses.reduce((acc, c) => acc + c.confidence, 0) /
+        nextClauses.length
+
+      setGlosses(mergedGlosses)
+      setTranslation(mergedText)
+      setConfidence(Number(avgConf.toFixed(3)))
+      parseMutation.mutate(
+        { gloss_sequence: mergedGlosses, translation: mergedText },
+        {
+          onSuccess: (parsed) => {
+            setFrame(parsed)
+          },
+        },
+      )
+    },
+    [parseMutation],
+  )
 
   React.useEffect(() => {
     if (activeTicket) {
@@ -70,6 +120,18 @@ export function KioskWorkspace() {
           setTranslation(rec.translation)
           setConfidence(rec.confidence)
           setFrame(rec.semantic_frame)
+          setIsAppendingClause(false)
+          setCapturedClauses(
+            recognized && rec.translation
+              ? [
+                  {
+                    translation: rec.translation,
+                    glosses: rec.gloss_sequence,
+                    confidence: rec.confidence,
+                  },
+                ]
+              : [],
+          )
           setForceShowFallback(false)
           if (showToast) {
             pushToast({
@@ -97,6 +159,8 @@ export function KioskWorkspace() {
     setGlosses([])
     setTranslation("")
     setConfidence(0.34)
+    setCapturedClauses([])
+    setIsAppendingClause(false)
     setFrame({
       intent: "general",
       specialty: "Bàn Tiếp Nhận & Hỗ Trợ",
@@ -139,10 +203,28 @@ export function KioskWorkspace() {
           res.recognition_status ?? (recognized ? "recognized" : "low_confidence"),
         )
         setFallbackMessage(res.fallback_message ?? null)
-        setGlosses(res.gloss_sequence)
-        setTranslation(res.translation)
-        setConfidence(res.confidence)
-        setFrame(res.semantic_frame)
+
+        const newClause = {
+          translation: res.translation,
+          glosses: res.gloss_sequence,
+          confidence: res.confidence,
+        }
+
+        if (recognized && isAppendingClause && capturedClauses.length > 0) {
+          setIsAppendingClause(false)
+          syncMergedClauses([...capturedClauses, newClause])
+        } else {
+          setIsAppendingClause(false)
+          if (recognized && res.translation) {
+            setCapturedClauses([newClause])
+          } else if (!isAppendingClause) {
+            setCapturedClauses([])
+          }
+          setGlosses(res.gloss_sequence)
+          setTranslation(res.translation)
+          setConfidence(res.confidence)
+          setFrame(res.semantic_frame)
+        }
 
         // Tự động phát lại khung xương chuyển động của chính video người dùng vừa gửi
         if (res.extracted_frames && res.extracted_frames.length > 0) {
@@ -315,6 +397,8 @@ export function KioskWorkspace() {
     setTranslation("")
     setConfidence(0)
     setFrame(null)
+    setCapturedClauses([])
+    setIsAppendingClause(false)
     setIsRecognized(true)
     setRecognitionStatus("recognized")
     setFallbackMessage(null)
@@ -456,6 +540,35 @@ export function KioskWorkspace() {
                     fallbackMessage={fallbackMessage}
                   />
 
+                  {capturedClauses.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-3.5 py-2.5">
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        Các ý đã ghép ({capturedClauses.length}):
+                      </span>
+                      {capturedClauses.map((clause, idx) => (
+                        <Badge
+                          key={`${clause.translation}-${idx}`}
+                          variant="secondary"
+                          className="gap-1.5 pr-1.5 text-xs"
+                        >
+                          <span>{clause.translation}</span>
+                          <button
+                            type="button"
+                            aria-label={`Xóa ý ${idx + 1}`}
+                            onClick={() =>
+                              syncMergedClauses(
+                                capturedClauses.filter((_, i) => i !== idx),
+                              )
+                            }
+                            className="cursor-pointer rounded-full p-0.5 hover:bg-destructive/20 hover:text-destructive"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
                   {translation && (
                     <ConfirmationBanner
                       frame={frame}
@@ -465,6 +578,20 @@ export function KioskWorkspace() {
                       doctorReply={doctorReply}
                       onConfirm={handleConfirm}
                       onOpenEdit={() => setForceShowFallback(true)}
+                      isAppendingClause={isAppendingClause}
+                      onAppendCameraClause={() => {
+                        setIsAppendingClause((prev) => {
+                          const next = !prev
+                          if (next) {
+                            pushToast({
+                              title: "Chế độ quay nối tiếp",
+                              description:
+                                "Hãy quay hoặc tải thêm video câu tiếp theo bên trái — hệ thống sẽ tự ghép vào cùng hồ sơ.",
+                            })
+                          }
+                          return next
+                        })
+                      }}
                       onRequestHumanHelp={handleRequestHumanHelp}
                       onAcknowledge={handleAcknowledge}
                       isAcking={ackMutation.isPending}
