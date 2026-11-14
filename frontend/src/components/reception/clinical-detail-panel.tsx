@@ -1,7 +1,6 @@
 import * as React from "react"
 import {
   AlertCircle,
-  AlertTriangle,
   ArrowRightCircle,
   Check,
   CheckCircle2,
@@ -13,8 +12,6 @@ import {
   MessageSquarePlus,
   Send,
   Siren,
-  ThumbsUp,
-  X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -188,45 +185,62 @@ export function ClinicalDetailPanel({
         </div>
       </div>
 
-      {/* KHU VỰC PHẢN HỒI NGƯỢC 2 CHIỀU & THEO DÕI TƯƠNG TÁC TỪ KIOSK */}
+      {/* KHU VỰC PHẢN HỒI NGƯỢC 2 CHIỀU & LỊCH SỬ HỘI THOẠI NHIỀU LƯỢT */}
       <div className="space-y-3.5 border-t pt-4">
-        {/* Trạng thái phản hồi hiện tại của phiếu khám này */}
-        {activeReply && (
-          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3.5 space-y-2">
+        {selectedCase.messages && selectedCase.messages.length > 0 && (
+          <div className="rounded-xl border bg-muted/20 p-3 space-y-2.5">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-primary uppercase tracking-wide">
-                Chỉ dẫn đã gửi tới Kiosk ({activeReply.replied_at}):
+              <span className="font-semibold uppercase tracking-wider text-muted-foreground">
+                Lịch sử đối thoại 2 chiều ({selectedCase.messages.length} lượt)
               </span>
-              {patientAck ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 font-bold text-success text-[11px]">
-                  <CheckCircle2 className="size-3" />
-                  BỆNH NHÂN ĐÃ PHẢN HỒI
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 font-bold text-amber-600 dark:text-amber-400 text-[11px] animate-pulse">
-                  <Clock className="size-3" />
-                  ĐANG ĐỢI BỆNH NHÂN XÁC NHẬN...
-                </span>
+              {activeReply && (
+                patientAck ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 font-bold text-success text-[11px]">
+                    <CheckCircle2 className="size-3" />
+                    BỆNH NHÂN ĐÃ PHẢN HỒI
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 font-bold text-amber-600 dark:text-amber-400 text-[11px] animate-pulse">
+                    <Clock className="size-3" />
+                    ĐANG ĐỢI BỆNH NHÂN PHẢN HỒI...
+                  </span>
+                )
               )}
             </div>
-
-            <p className="text-sm font-medium italic text-foreground">
-              “{activeReply.message}”
-            </p>
-
-            {/* Khối phản hồi ngược từ người bệnh tại Kiosk */}
-            {patientAck && (
-              <div className="flex items-center gap-2 rounded-lg bg-background p-2.5 border border-success/40 text-xs">
-                {patientAck.action === "understood" && <ThumbsUp className="size-4 text-success" />}
-                {patientAck.action === "yes" && <Check className="size-4 text-success" />}
-                {patientAck.action === "no" && <X className="size-4 text-destructive" />}
-                {patientAck.action === "need_help" && <AlertTriangle className="size-4 text-warning" />}
-                <span>
-                  Phản hồi từ Kiosk: <strong className="text-foreground">{patientAck.note}</strong>
-                  <span className="ml-1 text-muted-foreground tabular-nums">({patientAck.acked_at})</span>
-                </span>
-              </div>
-            )}
+            <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+              {selectedCase.messages.map((m) => {
+                const isClinician = m.sender === "clinician"
+                return (
+                  <div
+                    key={m.id}
+                    className={`flex flex-col gap-0.5 rounded-lg px-3 py-2 text-xs ${
+                      isClinician
+                        ? "ml-6 border border-primary/30 bg-primary/10 text-foreground"
+                        : "mr-6 border bg-background text-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                      <span className="font-semibold">
+                        {isClinician ? (m.sender_name || "Nhân viên y tế") : "Bệnh nhân"}
+                        {!isClinician && m.source && (
+                          <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">
+                            {m.source === "vsl"
+                              ? "Ký hiệu VSL"
+                              : m.source === "body_map"
+                                ? "Sơ đồ cơ thể"
+                                : m.source === "ack"
+                                  ? "1 chạm"
+                                  : m.source}
+                          </span>
+                        )}
+                      </span>
+                      <span className="tabular-nums">{m.timestamp}</span>
+                    </div>
+                    <p className="text-sm font-medium">{m.text}</p>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 

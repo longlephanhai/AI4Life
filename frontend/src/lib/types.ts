@@ -69,7 +69,20 @@ export interface DoctorReply {
   clinician_name: string
   replied_at: string
   category?: "insurance" | "direction" | "vital_signs" | "question_yes_no" | "emergency" | "general"
+  matched_sample_id?: string | null
   patient_ack?: PatientAck | null
+}
+
+export interface DialogueMessage {
+  id: number
+  sender: "patient" | "clinician"
+  sender_name?: string
+  text: string
+  category?: string
+  source?: string
+  gloss_sequence?: string[]
+  matched_sample_id?: string | null
+  timestamp: string
 }
 
 export interface QueueCase {
@@ -82,6 +95,7 @@ export interface QueueCase {
   semantic_frame: SemanticFrame
   created_at: string
   doctor_reply?: DoctorReply | null
+  messages?: DialogueMessage[]
 }
 
 export interface QueueResponse {

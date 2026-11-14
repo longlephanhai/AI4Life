@@ -230,6 +230,7 @@ def api_confirm(req: ConfirmRequest):
     prefix = "E" if is_emergency else "A"
     ticket_number = f"{prefix}{TICKET_COUNTER:03d}"
 
+    created_at = datetime.now().strftime("%H:%M:%S")
     record = {
         "ticket_number": ticket_number,
         "patient_name": req.patient_name or "Bệnh nhân VSL",
@@ -238,8 +239,18 @@ def api_confirm(req: ConfirmRequest):
         "gloss_sequence": req.gloss_sequence or [],
         "confidence": req.confidence or 0.96,
         "semantic_frame": req.semantic_frame.model_dump() if hasattr(req.semantic_frame, "model_dump") else req.semantic_frame.dict(),
-        "created_at": datetime.now().strftime("%H:%M:%S"),
-        "doctor_reply": None
+        "created_at": created_at,
+        "doctor_reply": None,
+        "messages": [
+            {
+                "id": 1,
+                "sender": "patient",
+                "text": req.confirmed_text,
+                "source": req.status,
+                "gloss_sequence": req.gloss_sequence or [],
+                "timestamp": created_at,
+            }
+        ],
     }
     # Cấp cứu đưa lên đầu hàng đợi
     if is_emergency:
@@ -279,11 +290,41 @@ class PatientAckRequest(BaseModel):
     note: Optional[str] = None
 
 
+class PatientMessageRequest(BaseModel):
+    text: str
+    source: str = "vsl"  # "vsl" | "body_map" | "quick_reply" | "text"
+    gloss_sequence: Optional[List[str]] = None
+
+
+def _match_vsl_sample_id(message: str) -> Optional[str]:
+    """Tìm sample_id trong VSL-GH có nội dung gần nhất với chỉ dẫn của bác sĩ để phát minh họa."""
+    msg_norm = message.lower().strip(" ?!.,")
+    if not msg_norm or not SENTENCE_SAMPLE_MAP:
+        return None
+    msg_words = set(msg_norm.split())
+    best_id = None
+    best_score = 0.0
+    for sample in SENTENCE_SAMPLE_MAP.values():
+        trans = (sample.get("translation") or "").lower().strip(" ?!.,")
+        if not trans:
+            continue
+        if msg_norm == trans or msg_norm in trans or trans in msg_norm:
+            return sample["id"]
+        trans_words = set(trans.split())
+        if not trans_words:
+            continue
+        overlap = len(msg_words & trans_words) / max(len(msg_words | trans_words), 1)
+        if overlap > best_score and overlap >= 0.45:
+            best_score = overlap
+            best_id = sample["id"]
+    return best_id
+
+
 @app.post("/api/queue/{ticket_number}/reply")
 def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
     """
     Bác sĩ gửi phản hồi trực quan 1 chạm cho bệnh nhân tại Kiosk.
-    Tự động phân loại danh mục (category) để Kiosk hiển thị Icon minh họa & các nút tương tác tương ứng.
+    Tự động phân loại danh mục (category) và tìm mẫu VSL minh họa (nếu có).
     """
     msg = req.message.lower()
     cat = req.category
@@ -301,18 +342,31 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
         else:
             cat = "general"
 
+    replied_at = datetime.now().strftime("%H:%M:%S")
+    matched_sample_id = _match_vsl_sample_id(req.message)
     reply_payload = {
         "ticket_number": ticket_number,
         "message": req.message,
         "clinician_name": req.clinician_name,
         "category": cat,
-        "replied_at": datetime.now().strftime("%H:%M:%S"),
+        "matched_sample_id": matched_sample_id,
+        "replied_at": replied_at,
         "patient_ack": None
     }
     DOCTOR_REPLIES[ticket_number] = reply_payload
     for c in CLINIC_QUEUE:
         if c["ticket_number"] == ticket_number:
             c["doctor_reply"] = reply_payload
+            msgs = c.setdefault("messages", [])
+            msgs.append({
+                "id": len(msgs) + 1,
+                "sender": "clinician",
+                "sender_name": req.clinician_name,
+                "text": req.message,
+                "category": cat,
+                "matched_sample_id": matched_sample_id,
+                "timestamp": replied_at,
+            })
             break
     return {"success": True, "reply": reply_payload}
 
@@ -330,10 +384,11 @@ def api_patient_ack(ticket_number: str, req: PatientAckRequest):
         "need_help": "Chưa hiểu — Cần người đến hỗ trợ trực tiếp"
     }
     label = req.note or action_labels.get(req.action, req.action)
+    acked_at = datetime.now().strftime("%H:%M:%S")
     ack_data = {
         "action": req.action,
         "note": label,
-        "acked_at": datetime.now().strftime("%H:%M:%S")
+        "acked_at": acked_at
     }
 
     if ticket_number in DOCTOR_REPLIES:
@@ -346,6 +401,15 @@ def api_patient_ack(ticket_number: str, req: PatientAckRequest):
                 c["doctor_reply"] = {"ticket_number": ticket_number, "message": "", "patient_ack": ack_data}
             else:
                 c["doctor_reply"]["patient_ack"] = ack_data
+            msgs = c.setdefault("messages", [])
+            msgs.append({
+                "id": len(msgs) + 1,
+                "sender": "patient",
+                "text": label,
+                "source": "ack",
+                "gloss_sequence": [],
+                "timestamp": acked_at,
+            })
             found = True
             break
 
@@ -353,6 +417,33 @@ def api_patient_ack(ticket_number: str, req: PatientAckRequest):
         raise HTTPException(status_code=404, detail=f"Không tìm thấy phiếu {ticket_number}")
 
     return {"success": True, "patient_ack": ack_data}
+
+
+@app.post("/api/queue/{ticket_number}/patient-message")
+def api_patient_message(ticket_number: str, req: PatientMessageRequest):
+    """
+    Bệnh nhân trả lời tiếp trong phiên đối thoại 2 chiều bằng Ký hiệu VSL, Sơ đồ cơ thể hoặc văn bản.
+    """
+    sent_at = datetime.now().strftime("%H:%M:%S")
+    for c in CLINIC_QUEUE:
+        if c["ticket_number"] == ticket_number:
+            msgs = c.setdefault("messages", [])
+            msg_item = {
+                "id": len(msgs) + 1,
+                "sender": "patient",
+                "text": req.text,
+                "source": req.source,
+                "gloss_sequence": req.gloss_sequence or [],
+                "timestamp": sent_at,
+            }
+            msgs.append(msg_item)
+            ack_data = {"action": "understood", "note": req.text, "acked_at": sent_at}
+            if c.get("doctor_reply"):
+                c["doctor_reply"]["patient_ack"] = ack_data
+            if ticket_number in DOCTOR_REPLIES:
+                DOCTOR_REPLIES[ticket_number]["patient_ack"] = ack_data
+            return {"success": True, "message": msg_item}
+    raise HTTPException(status_code=404, detail=f"Không tìm thấy phiếu {ticket_number}")
 
 
 @app.post("/api/queue/{ticket_number}/serve")

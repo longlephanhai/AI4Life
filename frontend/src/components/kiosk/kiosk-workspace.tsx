@@ -1,14 +1,9 @@
 import * as React from "react"
-import {
-  RotateCcw,
-  Ticket,
-  Video,
-} from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Video } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { CameraStage } from "@/components/kiosk/camera-stage"
 import { ConfirmationBanner } from "@/components/kiosk/confirmation-banner"
+import { DialogueSession } from "@/components/kiosk/dialogue-session"
 import { EditTranslationDialog } from "@/components/kiosk/edit-translation-dialog"
 import { FallbackAssistantPanel } from "@/components/kiosk/fallback-assistant-panel"
 import { RecognitionPanel } from "@/components/kiosk/recognition-panel"
@@ -22,6 +17,7 @@ import {
   useRecognizeVideo,
   useSampleKeypoints,
   useScenarios,
+  useSendPatientMessage,
 } from "@/hooks/use-signbridge"
 import type {
   RecognitionStatus,
@@ -39,6 +35,7 @@ export function KioskWorkspace() {
   const sampleKeypointsMutation = useSampleKeypoints()
   const confirmMutation = useConfirmCase()
   const ackMutation = useAcknowledgeDoctorReply()
+  const sendPatientMsgMutation = useSendPatientMessage()
 
   const [activeScenarioId, setActiveScenarioId] = React.useState<string | null>(null)
   const [samplePlaybackData, setSamplePlaybackData] =
@@ -357,8 +354,47 @@ export function KioskWorkspace() {
     })
   }
 
+  const activeCase = React.useMemo(
+    () =>
+      activeTicket
+        ? queueQuery.data?.cases.find((c) => c.ticket_number === activeTicket) ??
+          null
+        : null,
+    [activeTicket, queueQuery.data?.cases],
+  )
+
   const doctorReply =
-    (activeTicket && queueQuery.data?.doctor_replies?.[activeTicket]) || null
+    activeCase?.doctor_reply ??
+    (activeTicket ? queueQuery.data?.doctor_replies?.[activeTicket] : undefined) ??
+    null
+
+  const handleSendDialogueMessage = (payload: {
+    text: string
+    source: "vsl" | "body_map" | "quick_reply" | "text"
+    gloss_sequence?: string[]
+  }) => {
+    if (!activeTicket) return
+    sendPatientMsgMutation.mutate(
+      { ticketNumber: activeTicket, ...payload },
+      {
+        onSuccess: () => {
+          pushToast({
+            title: "Đã gửi phản hồi",
+            description: "Bàn Tiếp Nhận đã nhận được câu trả lời của bạn.",
+            tone: "success",
+          })
+        },
+      },
+    )
+  }
+
+  const handleLoadDialogueSample = (sampleId: string) => {
+    sampleKeypointsMutation.mutate(sampleId, {
+      onSuccess: (res) => {
+        setSamplePlaybackData(res)
+      },
+    })
+  }
 
   // Điều kiện kích hoạt 5 Phương án dự phòng: CHỈ KHI phương thức 1 không được HOẶC người bệnh bấm mở
   const showFallbackOptions = !isRecognized || forceShowFallback
@@ -501,60 +537,27 @@ export function KioskWorkspace() {
 
       {/* 
         =========================================================================
-        TRẠNG THÁI 2: PHIẾU KHÁM & ĐỐI THOẠI 2 CHIỀU VỚI BÁC SĨ (activeTicket !== null)
-        Sau khi đã gửi: Toàn bộ camera và bàn khai báo ẩn đi hoàn toàn!
-        Chỉ tập trung vào Vé số khám & Hộp thoại dặn dò thông minh.
+        TRẠNG THÁI 2: PHIÊN ĐỐI THOẠI 2 CHIỀU TRỰC TIẾP (activeTicket !== null)
+        Hỗ trợ hỏi đáp nhiều lượt: 1 chạm, Camera VSL, Sơ đồ cơ thể & VSL mẫu.
         ========================================================================= 
       */}
       {activeTicket && (
-        <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full py-6">
-          <Card className="flex flex-col items-center justify-center text-center p-8 border-2 border-success/40 bg-success/10 shadow-md">
-            <div className="flex size-20 items-center justify-center rounded-3xl bg-success text-success-foreground shadow-lg mb-4">
-              <Ticket className="size-10" />
-            </div>
-
-            <Badge variant="success" className="text-sm px-3 py-1 font-bold">
-              ĐÃ GỬI THÀNH CÔNG VÀO HÀNG ĐỢI
-            </Badge>
-
-            <p className="text-muted-foreground text-sm mt-3">
-              Số Thứ Tự Khám Của Bạn:
-            </p>
-            <h1 className="font-display text-6xl font-extrabold tracking-tight text-foreground my-2 tabular-nums">
-              {activeTicket}
-            </h1>
-
-            <p className="text-xs text-muted-foreground max-w-md mt-1">
-              Hồ sơ triệu chứng của bạn đã được chuyển tới Bàn Tiếp Nhận. Mời bạn quan sát các hướng dẫn/câu hỏi từ nhân viên y tế bên dưới.
-            </p>
-          </Card>
-
-          {/* Hộp thoại thông minh: Nhận câu hỏi và hiển thị các nút trả lời chính xác */}
-          <ConfirmationBanner
-            frame={frame}
-            translation={translation}
-            isSending={confirmMutation.isPending}
-            activeTicket={activeTicket}
-            doctorReply={doctorReply}
-            onConfirm={handleConfirm}
-            onOpenEdit={() => setIsEditOpen(true)}
-            onRequestHumanHelp={handleRequestHumanHelp}
-            onAcknowledge={handleAcknowledge}
-            isAcking={ackMutation.isPending}
-          />
-
-          <div className="flex justify-center pt-2">
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleResetKiosk}
-              className="gap-2 font-semibold text-sm"
-            >
-              <RotateCcw className="size-4" />
-              Hoàn tất / Đón lượt thăm khám tiếp theo
-            </Button>
-          </div>
-        </div>
+        <DialogueSession
+          ticketNumber={activeTicket}
+          messages={activeCase?.messages ?? []}
+          doctorReply={doctorReply}
+          isAcking={ackMutation.isPending}
+          isSendingMessage={sendPatientMsgMutation.isPending}
+          isAnalyzingVideo={recognizeMutation.isPending}
+          isLoadingSample={sampleKeypointsMutation.isPending}
+          samplePlaybackData={samplePlaybackData}
+          onAcknowledge={handleAcknowledge}
+          onSendPatientMessage={handleSendDialogueMessage}
+          onRecognizeVideo={(file) => recognizeMutation.mutateAsync(file)}
+          onLoadSampleVsl={handleLoadDialogueSample}
+          onClearSampleVsl={() => setSamplePlaybackData(null)}
+          onResetKiosk={handleResetKiosk}
+        />
       )}
 
       <EditTranslationDialog

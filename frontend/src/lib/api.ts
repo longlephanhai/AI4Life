@@ -1,6 +1,7 @@
 import type {
   ConfirmPayload,
   ConfirmResponse,
+  DialogueMessage,
   DoctorReply,
   HealthResponse,
   QueueResponse,
@@ -94,6 +95,24 @@ export const api = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, note }),
+      },
+    )
+  },
+
+  sendPatientMessage(
+    ticketNumber: string,
+    payload: {
+      text: string
+      source?: "vsl" | "body_map" | "quick_reply" | "text"
+      gloss_sequence?: string[]
+    },
+  ): Promise<{ success: boolean; message: DialogueMessage }> {
+    return requestJson<{ success: boolean; message: DialogueMessage }>(
+      `/api/queue/${encodeURIComponent(ticketNumber)}/patient-message`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       },
     )
   },

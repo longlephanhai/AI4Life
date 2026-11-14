@@ -91,6 +91,26 @@ export function useAcknowledgeDoctorReply() {
   })
 }
 
+export function useSendPatientMessage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      ticketNumber,
+      text,
+      source,
+      gloss_sequence,
+    }: {
+      ticketNumber: string
+      text: string
+      source?: "vsl" | "body_map" | "quick_reply" | "text"
+      gloss_sequence?: string[]
+    }) => api.sendPatientMessage(ticketNumber, { text, source, gloss_sequence }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["queue"] })
+    },
+  })
+}
+
 export function useServeTicket() {
   const qc = useQueryClient()
   return useMutation({
