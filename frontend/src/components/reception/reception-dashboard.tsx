@@ -42,9 +42,18 @@ export function ReceptionDashboard({ onSwitchToKiosk }: ReceptionDashboardProps)
       c.semantic_frame.needs_human_review,
   ).length
 
-  const handleSendReply = (ticketNumber: string, message: string) => {
+  const handleSendReply = (
+    ticketNumber: string,
+    message: string,
+    options?: { overrideGlosses?: string[]; sendVsl?: boolean },
+  ) => {
     replyMutation.mutate(
-      { ticketNumber, message },
+      {
+        ticketNumber,
+        message,
+        overrideGlosses: options?.overrideGlosses,
+        sendVsl: options?.sendVsl,
+      },
       {
         onSuccess: () => {
           pushToast({

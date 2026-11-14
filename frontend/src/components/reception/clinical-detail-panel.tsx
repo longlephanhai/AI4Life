@@ -7,22 +7,36 @@ import {
   ClipboardList,
   Clock,
   CreditCard,
+  Eye,
+  Hand,
   HeartPulse,
   HelpCircle,
   MessageSquarePlus,
+  Plus,
   Send,
   Siren,
+  X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import type { QueueCase } from "@/lib/types"
+import { VslSkeletonPlayer } from "@/components/kiosk/vsl-skeleton-player"
+import {
+  usePreviewVsl,
+  useSynthesizeVsl,
+  useVslGlosses,
+} from "@/hooks/use-signbridge"
+import type { QueueCase, VslSynthesizeResponse } from "@/lib/types"
 
 interface ClinicalDetailPanelProps {
   selectedCase: QueueCase | null
   isReplying: boolean
   isServing: boolean
-  onSendQuickReply: (ticketNumber: string, message: string) => void
+  onSendQuickReply: (
+    ticketNumber: string,
+    message: string,
+    options?: { overrideGlosses?: string[]; sendVsl?: boolean },
+  ) => void
   onServeCase: (ticketNumber: string) => void
 }
 
@@ -34,6 +48,45 @@ export function ClinicalDetailPanel({
   onServeCase,
 }: ClinicalDetailPanelProps) {
   const [customReply, setCustomReply] = React.useState("")
+  const [draftGlosses, setDraftGlosses] = React.useState<string[]>([])
+  const [missingTerms, setMissingTerms] = React.useState<string[]>([])
+  const [previewMode, setPreviewMode] = React.useState<
+    "full_sentence" | "stitched" | "text_only"
+  >("text_only")
+  const [isGlossEdited, setIsGlossEdited] = React.useState(false)
+  const [glossToAdd, setGlossToAdd] = React.useState("")
+  const [previewAnimation, setPreviewAnimation] =
+    React.useState<VslSynthesizeResponse | null>(null)
+
+  const glossListQuery = useVslGlosses()
+  const previewVslMutation = usePreviewVsl()
+  const synthesizePreviewMutation = useSynthesizeVsl()
+
+  // Tự động xem trước chuỗi Gloss VSL khi nhân viên gõ hoặc chọn mẫu câu
+  React.useEffect(() => {
+    const trimmed = customReply.trim()
+    setPreviewAnimation(null)
+    if (!trimmed) {
+      setDraftGlosses([])
+      setMissingTerms([])
+      setPreviewMode("text_only")
+      setIsGlossEdited(false)
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      previewVslMutation.mutate(trimmed, {
+        onSuccess: (res) => {
+          setDraftGlosses(res.vsl_glosses)
+          setMissingTerms(res.missing_terms)
+          setPreviewMode(res.mode)
+          setIsGlossEdited(false)
+        },
+      })
+    }, 250)
+
+    return () => window.clearTimeout(timer)
+  }, [customReply])
 
   if (!selectedCase) {
     return (
@@ -65,11 +118,52 @@ export function ClinicalDetailPanel({
       ? Array.from(new Set([...frame.doctor_quick_responses, ...defaultPresets]))
       : defaultPresets
 
+  const handleConfirmSend = (sendVsl: boolean) => {
+    const trimmed = customReply.trim()
+    if (!trimmed) return
+    onSendQuickReply(selectedCase.ticket_number, trimmed, {
+      sendVsl,
+      overrideGlosses:
+        sendVsl && isGlossEdited ? draftGlosses : undefined,
+    })
+    setCustomReply("")
+    setPreviewAnimation(null)
+  }
+
+  const handleRemoveGloss = (idx: number) => {
+    setDraftGlosses((prev) => prev.filter((_, i) => i !== idx))
+    setIsGlossEdited(true)
+    setPreviewAnimation(null)
+  }
+
+  const handleAddGloss = () => {
+    const g = glossToAdd.trim().toUpperCase()
+    if (!g) return
+    setDraftGlosses((prev) => [...prev, g])
+    setGlossToAdd("")
+    setIsGlossEdited(true)
+    setPreviewAnimation(null)
+  }
+
+  const handlePreviewSkeleton = () => {
+    const trimmed = customReply.trim()
+    if (!trimmed) return
+    synthesizePreviewMutation.mutate(
+      {
+        text: trimmed,
+        overrideGlosses: isGlossEdited ? draftGlosses : undefined,
+      },
+      {
+        onSuccess: (res) => {
+          setPreviewAnimation(res)
+        },
+      },
+    )
+  }
+
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!customReply.trim()) return
-    onSendQuickReply(selectedCase.ticket_number, customReply.trim())
-    setCustomReply("")
+    handleConfirmSend(true)
   }
 
   const activeReply = selectedCase.doctor_reply
@@ -237,6 +331,19 @@ export function ClinicalDetailPanel({
                       <span className="tabular-nums">{m.timestamp}</span>
                     </div>
                     <p className="text-sm font-medium">{m.text}</p>
+                    {isClinician && m.vsl_glosses && m.vsl_glosses.length > 0 && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
+                        <span className="text-primary font-semibold">VSL đang phát:</span>
+                        {m.vsl_glosses.map((g, idx) => (
+                          <span
+                            key={`${g}-${idx}`}
+                            className="rounded bg-primary/15 px-1.5 py-0.5 font-semibold text-primary"
+                          >
+                            {g}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -251,17 +358,19 @@ export function ClinicalDetailPanel({
           </p>
         </div>
 
-        {/* Nút phản hồi nhanh có phân loại biểu tượng */}
+        {/* Nút phản hồi nhanh: nạp vào khung xác nhận VSL trước khi gửi */}
         <div className="flex flex-wrap gap-2">
           {contextQuickReplies.map((reply) => {
             const lower = reply.toLowerCase()
+            const isSelected = customReply.trim() === reply.trim()
             return (
               <Button
                 key={reply}
-                variant="secondary"
+                type="button"
+                variant={isSelected ? "default" : "secondary"}
                 size="sm"
                 disabled={isReplying}
-                onClick={() => onSendQuickReply(selectedCase.ticket_number, reply)}
+                onClick={() => setCustomReply(reply)}
                 className="text-xs gap-1.5"
               >
                 {lower.includes("bhyt") || lower.includes("cccd") ? (
@@ -281,24 +390,139 @@ export function ClinicalDetailPanel({
           })}
         </div>
 
-        {/* Form gửi chỉ dẫn tùy chỉnh */}
-        <form onSubmit={handleCustomSubmit} className="flex items-center gap-2 pt-1">
+        {/* Ô nhập hướng dẫn & Khung xác nhận chuỗi VSL trước khi gửi */}
+        <form onSubmit={handleCustomSubmit} className="space-y-3 pt-1">
           <input
             type="text"
             value={customReply}
             onChange={(e) => setCustomReply(e.target.value)}
-            placeholder="Gõ hướng dẫn trực tiếp cho người thăm khám..."
-            className="h-10 flex-1 rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
+            placeholder="Chọn mẫu trên hoặc gõ câu hỏi / hướng dẫn cho người thăm khám..."
+            className="h-10 w-full rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
           />
-          <Button
-            type="submit"
-            size="sm"
-            loading={isReplying}
-            disabled={!customReply.trim()}
-          >
-            <Send />
-            Gửi Kiosk
-          </Button>
+
+          {customReply.trim() && (
+            <div className="rounded-xl border-2 border-primary/35 bg-primary/5 p-3.5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-primary">
+                  <Hand className="size-4" />
+                  <span>Xác nhận chuỗi ký hiệu VSL trước khi gửi</span>
+                  {previewMode === "full_sentence" && !isGlossEdited && (
+                    <Badge variant="success" className="text-[10px]">
+                      Khớp nguyên câu VSL-GH
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    synthesizePreviewMutation.isPending ||
+                    draftGlosses.length === 0
+                  }
+                  onClick={handlePreviewSkeleton}
+                  className="h-7 gap-1.5 text-xs"
+                >
+                  <Eye className="size-3.5" />
+                  {previewAnimation ? "Cập nhật xem thử" : "Xem thử khung xương VSL"}
+                </Button>
+              </div>
+
+              {/* Chuỗi Gloss có thể chỉnh sửa (xóa / thêm) */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {draftGlosses.length > 0 ? (
+                  draftGlosses.map((g, idx) => (
+                    <span
+                      key={`${g}-${idx}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-background px-2 py-1 text-xs font-bold text-foreground"
+                    >
+                      {g}
+                      <button
+                        type="button"
+                        aria-label={`Bỏ ${g}`}
+                        onClick={() => handleRemoveGloss(idx)}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs italic text-muted-foreground">
+                    {previewVslMutation.isPending
+                      ? "Đang phân tích chuỗi ký hiệu VSL..."
+                      : "Chưa tìm thấy ký hiệu tương ứng — bạn có thể thêm Gloss thủ công hoặc gửi dạng chữ lớn."}
+                  </span>
+                )}
+              </div>
+
+              {/* Thêm Gloss từ danh sách 368 gloss thật */}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  list="vsl-available-glosses"
+                  value={glossToAdd}
+                  onChange={(e) => setGlossToAdd(e.target.value)}
+                  placeholder="Thêm Gloss (VD: ĐAU, NHIỀU, ÂM-Ỉ, CÓ-KHÔNG)..."
+                  className="h-8 flex-1 min-w-48 rounded-md border bg-background px-2.5 text-xs focus:ring-2 focus:ring-ring focus:outline-none"
+                />
+                <datalist id="vsl-available-glosses">
+                  {(glossListQuery.data?.glosses ?? []).map((g) => (
+                    <option key={g} value={g} />
+                  ))}
+                </datalist>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!glossToAdd.trim()}
+                  onClick={handleAddGloss}
+                  className="h-8 gap-1 text-xs"
+                >
+                  <Plus className="size-3.5" />
+                  Thêm Gloss
+                </Button>
+              </div>
+
+              {missingTerms.length > 0 && !isGlossEdited && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                  Các từ ngoài 368 ký hiệu sẽ hiện chữ nổi bật song song:{" "}
+                  <strong>{missingTerms.join(" • ")}</strong>
+                </p>
+              )}
+
+              {previewAnimation && (
+                <VslSkeletonPlayer
+                  data={previewAnimation}
+                  isLoading={synthesizePreviewMutation.isPending}
+                />
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-2.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isReplying}
+                  onClick={() => handleConfirmSend(false)}
+                  className="text-xs"
+                >
+                  Chỉ gửi chữ lớn (không phát VSL)
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="success"
+                  loading={isReplying}
+                  disabled={!customReply.trim() || draftGlosses.length === 0}
+                  className="gap-1.5 font-semibold"
+                >
+                  <CheckCircle2 className="size-4" />
+                  Xác nhận &amp; Phát VSL tới Kiosk
+                </Button>
+              </div>
+            </div>
+          )}
         </form>
       </div>
     </Card>

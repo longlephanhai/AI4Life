@@ -62,11 +62,19 @@ export function useDoctorReply() {
       ticketNumber,
       message,
       category,
+      overrideGlosses,
+      sendVsl,
     }: {
       ticketNumber: string
       message: string
       category?: string
-    }) => api.sendDoctorReply(ticketNumber, message, category),
+      overrideGlosses?: string[]
+      sendVsl?: boolean
+    }) =>
+      api.sendDoctorReply(ticketNumber, message, category, {
+        overrideGlosses,
+        sendVsl,
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["queue"] })
     },
@@ -118,6 +126,32 @@ export function useServeTicket() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["queue"] })
     },
+  })
+}
+
+export function useVslGlosses() {
+  return useQuery({
+    queryKey: ["vsl-glosses"],
+    queryFn: () => api.getVslGlosses(),
+    staleTime: 300000,
+  })
+}
+
+export function usePreviewVsl() {
+  return useMutation({
+    mutationFn: (text: string) => api.previewVsl(text),
+  })
+}
+
+export function useSynthesizeVsl() {
+  return useMutation({
+    mutationFn: ({
+      text,
+      overrideGlosses,
+    }: {
+      text: string
+      overrideGlosses?: string[]
+    }) => api.synthesizeVsl(text, overrideGlosses),
   })
 }
 

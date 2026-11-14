@@ -70,6 +70,10 @@ export interface DoctorReply {
   replied_at: string
   category?: "insurance" | "direction" | "vital_signs" | "question_yes_no" | "emergency" | "general"
   matched_sample_id?: string | null
+  vsl_mode?: "full_sentence" | "stitched" | "text_only"
+  vsl_glosses?: string[]
+  missing_terms?: string[]
+  send_vsl?: boolean
   patient_ack?: PatientAck | null
 }
 
@@ -82,7 +86,30 @@ export interface DialogueMessage {
   source?: string
   gloss_sequence?: string[]
   matched_sample_id?: string | null
+  vsl_mode?: "full_sentence" | "stitched" | "text_only"
+  vsl_glosses?: string[]
+  missing_terms?: string[]
+  send_vsl?: boolean
   timestamp: string
+}
+
+export interface VslPreviewResponse {
+  mode: "full_sentence" | "stitched" | "text_only"
+  matched_sample_id: string | null
+  vsl_glosses: string[]
+  missing_terms: string[]
+}
+
+export interface VslSynthesizeResponse {
+  mode: "full_sentence" | "stitched" | "text_only"
+  video_id: string | null
+  text: string
+  gloss_sequence: string[]
+  missing_terms: string[]
+  fps: number
+  num_frames: number
+  gloss_frame_boundaries: GlossFrameBoundary[]
+  frames: number[][]
 }
 
 export interface QueueCase {

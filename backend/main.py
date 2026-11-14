@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from schemas import SemanticFrame, ParseRequest, RecognizeResponse, RecognitionStatus, IntentType
 from semantic_parser import parse_semantic_frame
 from ai_engine import ai_engine
+from vsl_synthesizer import vsl_synthesizer
 
 app = FastAPI(
     title="SignBridge AI — Medical Reception API",
@@ -283,6 +284,8 @@ class DoctorReplyRequest(BaseModel):
     message: str
     clinician_name: Optional[str] = "NV. Bàn Tiếp Nhận"
     category: Optional[str] = None
+    override_glosses: Optional[List[str]] = None
+    send_vsl: bool = True
 
 
 class PatientAckRequest(BaseModel):
@@ -320,11 +323,37 @@ def _match_vsl_sample_id(message: str) -> Optional[str]:
     return best_id
 
 
+class VslSynthesizeRequest(BaseModel):
+    text: str
+    override_glosses: Optional[List[str]] = None
+
+
+@app.get("/api/vsl-glosses")
+def api_vsl_glosses():
+    """Trả về danh sách các từ/gloss có sẵn khung xương để nhân viên chỉnh sửa trước khi gửi."""
+    return {"glosses": vsl_synthesizer.list_available_glosses()}
+
+
+@app.post("/api/vsl-preview")
+def api_vsl_preview(req: VslSynthesizeRequest):
+    """Xem trước chuỗi Gloss VSL & từ ngoài từ điển trước khi nhân viên xác nhận gửi."""
+    return vsl_synthesizer.preview_gloss_plan(req.text)
+
+
+@app.post("/api/vsl-synthesize")
+def api_vsl_synthesize(req: VslSynthesizeRequest):
+    """
+    Tổng hợp chuỗi khung xương VSL (khớp nguyên câu VSL-GH hoặc ghép từ 368 gloss thật)
+    từ câu phản hồi tiếng Việt hoặc chuỗi Gloss đã được nhân viên xác nhận.
+    """
+    return vsl_synthesizer.synthesize(req.text, override_glosses=req.override_glosses)
+
+
 @app.post("/api/queue/{ticket_number}/reply")
 def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
     """
     Bác sĩ gửi phản hồi trực quan 1 chạm cho bệnh nhân tại Kiosk.
-    Tự động phân loại danh mục (category) và tìm mẫu VSL minh họa (nếu có).
+    Tự động phân loại danh mục (category) và lập kế hoạch tổng hợp VSL (nguyên câu hoặc ghép gloss).
     """
     msg = req.message.lower()
     cat = req.category
@@ -337,19 +366,46 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
             cat = "vital_signs"
         elif any(w in msg for w in ["cấp cứu", "nguy kịch", "ngay lập tức", "khẩn cấp"]):
             cat = "emergency"
-        elif "?" in req.message or any(w in msg for w in ["không", "chưa", "bao lâu"]):
+        elif (
+            not any(w in msg for w in ["sao", "gì", "đâu", "nào", "bao lâu", "khi nào", "thế nào", "mấy"])
+            and (
+                ("có" in msg.split() and ("không" in msg.split() or "chưa" in msg.split()))
+                or msg.strip(" ?!.").endswith(("không", "chưa", "phải không", "được không"))
+            )
+        ):
             cat = "question_yes_no"
         else:
             cat = "general"
 
     replied_at = datetime.now().strftime("%H:%M:%S")
-    matched_sample_id = _match_vsl_sample_id(req.message)
+    if not req.send_vsl:
+        vsl_plan = {
+            "mode": "text_only",
+            "matched_sample_id": None,
+            "vsl_glosses": [],
+            "missing_terms": [],
+        }
+    elif req.override_glosses is not None:
+        vsl_plan = {
+            "mode": "stitched" if req.override_glosses else "text_only",
+            "matched_sample_id": None,
+            "vsl_glosses": req.override_glosses,
+            "missing_terms": [],
+        }
+    else:
+        vsl_plan = vsl_synthesizer.preview_gloss_plan(req.message)
+
+    matched_sample_id = vsl_plan["matched_sample_id"] or (_match_vsl_sample_id(req.message) if req.send_vsl else None)
     reply_payload = {
         "ticket_number": ticket_number,
         "message": req.message,
         "clinician_name": req.clinician_name,
         "category": cat,
         "matched_sample_id": matched_sample_id,
+        "vsl_mode": vsl_plan["mode"],
+        "vsl_glosses": vsl_plan["vsl_glosses"],
+        "missing_terms": vsl_plan["missing_terms"],
+        "send_vsl": req.send_vsl,
         "replied_at": replied_at,
         "patient_ack": None
     }
@@ -365,6 +421,10 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
                 "text": req.message,
                 "category": cat,
                 "matched_sample_id": matched_sample_id,
+                "vsl_mode": vsl_plan["mode"],
+                "vsl_glosses": vsl_plan["vsl_glosses"],
+                "missing_terms": vsl_plan["missing_terms"],
+                "send_vsl": req.send_vsl,
                 "timestamp": replied_at,
             })
             break

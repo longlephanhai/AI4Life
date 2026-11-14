@@ -10,7 +10,6 @@ import {
   Hand,
   HeartPulse,
   HelpCircle,
-  Loader2,
   MessageSquare,
   RotateCcw,
   Send,
@@ -24,15 +23,17 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CameraStage } from "@/components/kiosk/camera-stage"
+import { VslSkeletonPlayer } from "@/components/kiosk/vsl-skeleton-player"
 import {
   InteractiveBodyMap,
   type BodyRegion,
 } from "@/components/kiosk/interactive-body-map"
+import { useSynthesizeVsl } from "@/hooks/use-signbridge"
 import type {
   DialogueMessage,
   DoctorReply,
   RecognizeResponse,
-  SampleKeypointsResponse,
+  VslSynthesizeResponse,
 } from "@/lib/types"
 
 const QUICK_DURATION_CHIPS = [
@@ -50,8 +51,6 @@ interface DialogueSessionProps {
   isAcking: boolean
   isSendingMessage: boolean
   isAnalyzingVideo: boolean
-  isLoadingSample: boolean
-  samplePlaybackData: SampleKeypointsResponse | null
   onAcknowledge: (
     action: "understood" | "yes" | "no" | "need_help",
     note?: string,
@@ -62,8 +61,6 @@ interface DialogueSessionProps {
     gloss_sequence?: string[]
   }) => void
   onRecognizeVideo: (file: File) => Promise<RecognizeResponse>
-  onLoadSampleVsl: (sampleId: string) => void
-  onClearSampleVsl: () => void
   onResetKiosk: () => void
 }
 
@@ -74,15 +71,12 @@ export function DialogueSession({
   isAcking,
   isSendingMessage,
   isAnalyzingVideo,
-  isLoadingSample,
-  samplePlaybackData,
   onAcknowledge,
   onSendPatientMessage,
   onRecognizeVideo,
-  onLoadSampleVsl,
-  onClearSampleVsl,
   onResetKiosk,
 }: DialogueSessionProps) {
+  const synthesizeVslMutation = useSynthesizeVsl()
   const [replyMode, setReplyMode] = React.useState<
     "none" | "camera" | "body_map"
   >("none")
@@ -90,8 +84,11 @@ export function DialogueSession({
     null,
   )
   const [vslDraft, setVslDraft] = React.useState<RecognizeResponse | null>(null)
+  const [synthesizedVsl, setSynthesizedVsl] =
+    React.useState<VslSynthesizeResponse | null>(null)
   const [customText, setCustomText] = React.useState("")
   const threadEndRef = React.useRef<HTMLDivElement | null>(null)
+  const lastSynthesizedPromptRef = React.useRef<string>("")
 
   React.useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -107,10 +104,36 @@ export function DialogueSession({
   const activePrompt = doctorReply?.message || latestClinicianMsg?.text || null
   const activeCategory =
     doctorReply?.category || latestClinicianMsg?.category || "general"
-  const matchedSampleId =
-    doctorReply?.matched_sample_id ||
-    latestClinicianMsg?.matched_sample_id ||
-    null
+  const activeSendVsl =
+    doctorReply?.send_vsl ?? latestClinicianMsg?.send_vsl ?? true
+  const activeApprovedGlosses =
+    doctorReply?.vsl_glosses ?? latestClinicianMsg?.vsl_glosses
+  const activeVslMode = doctorReply?.vsl_mode ?? latestClinicianMsg?.vsl_mode
+  const activePromptKey = `${doctorReply?.replied_at ?? latestClinicianMsg?.timestamp ?? ""}:${activePrompt ?? ""}:${activeSendVsl}:${(activeApprovedGlosses ?? []).join(",")}`
+
+  // Tự động tổng hợp & phát hoạt ảnh VSL đúng theo chuỗi Gloss đã được nhân viên xác nhận
+  React.useEffect(() => {
+    if (!activePrompt || lastSynthesizedPromptRef.current === activePromptKey) {
+      return
+    }
+    lastSynthesizedPromptRef.current = activePromptKey
+    if (!activeSendVsl) {
+      setSynthesizedVsl(null)
+      return
+    }
+    synthesizeVslMutation.mutate(
+      {
+        text: activePrompt,
+        overrideGlosses:
+          activeVslMode === "stitched" ? activeApprovedGlosses : undefined,
+      },
+      {
+        onSuccess: (res) => {
+          setSynthesizedVsl(res)
+        },
+      },
+    )
+  }, [activePrompt, activePromptKey, activeSendVsl, activeVslMode, activeApprovedGlosses])
 
   const handleVideoCaptured = async (file: File) => {
     setVslDraft(null)
@@ -215,48 +238,16 @@ export function DialogueSession({
                   </p>
                 </div>
               </div>
-
-              {matchedSampleId && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={samplePlaybackData ? "secondary" : "outline"}
-                  disabled={isLoadingSample}
-                  onClick={() =>
-                    samplePlaybackData
-                      ? onClearSampleVsl()
-                      : onLoadSampleVsl(matchedSampleId)
-                  }
-                  className="gap-1.5 text-xs font-semibold"
-                >
-                  {isLoadingSample ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Hand className="size-3.5 text-primary" />
-                  )}
-                  {samplePlaybackData
-                    ? "Ẩn ký hiệu VSL mẫu"
-                    : "Xem ký hiệu VSL mẫu"}
-                </Button>
-              )}
             </div>
 
             <p className="font-display text-2xl font-bold leading-snug text-foreground">
               “{activePrompt}”
             </p>
 
-            {samplePlaybackData && (
-              <div className="rounded-xl border bg-background p-3">
-                <CameraStage
-                  isAnalyzing={false}
-                  activeVideoName={null}
-                  samplePlaybackData={samplePlaybackData}
-                  isLoadingSample={isLoadingSample}
-                  onUploadVideo={() => {}}
-                  onCameraActivated={() => {}}
-                />
-              </div>
-            )}
+            <VslSkeletonPlayer
+              data={synthesizedVsl}
+              isLoading={synthesizeVslMutation.isPending}
+            />
           </div>
         ) : (
           <div className="flex items-center gap-3 text-sm text-muted-foreground">

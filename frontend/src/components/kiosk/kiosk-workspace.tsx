@@ -388,14 +388,6 @@ export function KioskWorkspace() {
     )
   }
 
-  const handleLoadDialogueSample = (sampleId: string) => {
-    sampleKeypointsMutation.mutate(sampleId, {
-      onSuccess: (res) => {
-        setSamplePlaybackData(res)
-      },
-    })
-  }
-
   // Điều kiện kích hoạt 5 Phương án dự phòng: CHỈ KHI phương thức 1 không được HOẶC người bệnh bấm mở
   const showFallbackOptions = !isRecognized || forceShowFallback
 
@@ -549,13 +541,9 @@ export function KioskWorkspace() {
           isAcking={ackMutation.isPending}
           isSendingMessage={sendPatientMsgMutation.isPending}
           isAnalyzingVideo={recognizeMutation.isPending}
-          isLoadingSample={sampleKeypointsMutation.isPending}
-          samplePlaybackData={samplePlaybackData}
           onAcknowledge={handleAcknowledge}
           onSendPatientMessage={handleSendDialogueMessage}
           onRecognizeVideo={(file) => recognizeMutation.mutateAsync(file)}
-          onLoadSampleVsl={handleLoadDialogueSample}
-          onClearSampleVsl={() => setSamplePlaybackData(null)}
           onResetKiosk={handleResetKiosk}
         />
       )}

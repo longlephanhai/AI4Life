@@ -9,6 +9,8 @@ import type {
   SampleKeypointsResponse,
   SampleScenario,
   SemanticFrame,
+  VslPreviewResponse,
+  VslSynthesizeResponse,
 } from "@/lib/types"
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
@@ -73,13 +75,19 @@ export const api = {
     ticketNumber: string,
     message: string,
     category?: string,
+    options?: { overrideGlosses?: string[]; sendVsl?: boolean },
   ): Promise<{ success: boolean; reply: DoctorReply }> {
     return requestJson<{ success: boolean; reply: DoctorReply }>(
       `/api/queue/${encodeURIComponent(ticketNumber)}/reply`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, category }),
+        body: JSON.stringify({
+          message,
+          category,
+          override_glosses: options?.overrideGlosses,
+          send_vsl: options?.sendVsl ?? true,
+        }),
       },
     )
   },
@@ -126,6 +134,29 @@ export const api = {
         method: "POST",
       },
     )
+  },
+
+  getVslGlosses(): Promise<{ glosses: string[] }> {
+    return requestJson<{ glosses: string[] }>("/api/vsl-glosses")
+  },
+
+  previewVsl(text: string): Promise<VslPreviewResponse> {
+    return requestJson<VslPreviewResponse>("/api/vsl-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+  },
+
+  synthesizeVsl(
+    text: string,
+    overrideGlosses?: string[],
+  ): Promise<VslSynthesizeResponse> {
+    return requestJson<VslSynthesizeResponse>("/api/vsl-synthesize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, override_glosses: overrideGlosses }),
+    })
   },
 }
 
