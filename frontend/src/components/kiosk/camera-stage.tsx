@@ -26,7 +26,6 @@ interface CameraStageProps {
   isLoadingSample?: boolean
   onUploadVideo: (file: File) => void
   onCameraActivated: () => void
-  onPlaySample?: () => void
   onSimulateUnknownSign?: () => void
 }
 
@@ -103,7 +102,6 @@ export function CameraStage({
   isLoadingSample = false,
   onUploadVideo,
   onCameraActivated,
-  onPlaySample,
   onSimulateUnknownSign,
 }: CameraStageProps) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null)
@@ -801,11 +799,11 @@ export function CameraStage({
               <p className="text-base font-semibold">
                 {isAnalyzing
                   ? `Đang phân tích video: ${activeVideoName ?? "mẫu"}`
-                  : "Chọn kịch bản mẫu bên trên để xem Khung Xương Ký Hiệu (.npy)"}
+                  : "Bật Camera để ra ký hiệu hoặc tải lên video"}
               </p>
               <p className="text-sm text-slate-400">
                 {cameraError ??
-                  "Bạn có thể xem trước động tác tay chuẩn trong tập dữ liệu rồi bật Camera làm theo."}
+                  "Đứng chính diện trước Camera để thực hiện ký hiệu hoặc tải lên video MP4."}
               </p>
             </div>
           </div>
@@ -882,28 +880,15 @@ export function CameraStage({
 
       <div className="flex flex-wrap items-center gap-2.5">
         {!isCameraOn ? (
-          <>
-            <Button
-              size="lg"
-              variant="default"
-              className="flex-1"
-              onClick={handleToggleCamera}
-            >
-              <Camera />
-              Bật Camera Tập Ký Hiệu
-            </Button>
-            {onPlaySample && (
-              <Button
-                size="lg"
-                variant="secondary"
-                loading={isLoadingSample}
-                onClick={onPlaySample}
-              >
-                <Play className="size-4" />
-                Xem Mẫu Động Tác (.npy)
-              </Button>
-            )}
-          </>
+          <Button
+            size="lg"
+            variant="default"
+            className="flex-1"
+            onClick={handleToggleCamera}
+          >
+            <Camera />
+            Bật Camera Tập Ký Hiệu
+          </Button>
         ) : (
           <>
             {isRecording ? (
@@ -935,7 +920,7 @@ export function CameraStage({
               onClick={handleToggleCamera}
             >
               <CameraOff />
-              Xem Lại Khung Xương Mẫu
+              Tắt Camera
             </Button>
           </>
         )}

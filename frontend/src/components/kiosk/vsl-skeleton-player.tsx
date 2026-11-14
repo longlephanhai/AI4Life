@@ -263,8 +263,8 @@ export function VslSkeletonPlayer({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[260px_1fr] items-center">
-        <div className="relative mx-auto aspect-square w-full max-w-[260px] overflow-hidden rounded-lg border border-slate-800 bg-[#121620]">
+      <div className="grid gap-4 md:grid-cols-[300px_1fr] items-center">
+        <div className="relative mx-auto aspect-square w-full max-w-[300px] overflow-hidden rounded-lg border border-slate-800 bg-[#121620]">
           <canvas ref={canvasRef} className="size-full object-contain" />
           <span className="absolute bottom-2 left-2 rounded-full bg-slate-950/80 px-2 py-0.5 text-[11px] font-medium text-slate-300 tabular-nums">
             Frame {frameIdx + 1}/{data.frames.length}

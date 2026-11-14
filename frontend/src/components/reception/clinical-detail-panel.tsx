@@ -53,6 +53,7 @@ export function ClinicalDetailPanel({
   const [previewMode, setPreviewMode] = React.useState<
     "full_sentence" | "stitched" | "text_only"
   >("text_only")
+  const [translationSource, setTranslationSource] = React.useState<string>("")
   const [isGlossEdited, setIsGlossEdited] = React.useState(false)
   const [glossToAdd, setGlossToAdd] = React.useState("")
   const [previewAnimation, setPreviewAnimation] =
@@ -61,29 +62,40 @@ export function ClinicalDetailPanel({
   const glossListQuery = useVslGlosses()
   const previewVslMutation = usePreviewVsl()
   const synthesizePreviewMutation = useSynthesizeVsl()
+  const latestReplyRef = React.useRef("")
+  const previewSeqRef = React.useRef(0)
 
   // Tự động xem trước chuỗi Gloss VSL khi nhân viên gõ hoặc chọn mẫu câu
   React.useEffect(() => {
     const trimmed = customReply.trim()
+    latestReplyRef.current = trimmed
+    const seq = ++previewSeqRef.current
     setPreviewAnimation(null)
+    setDraftGlosses([])
+    setMissingTerms([])
+    setTranslationSource("")
+    setIsGlossEdited(false)
+
     if (!trimmed) {
-      setDraftGlosses([])
-      setMissingTerms([])
       setPreviewMode("text_only")
-      setIsGlossEdited(false)
       return
     }
 
     const timer = window.setTimeout(() => {
       previewVslMutation.mutate(trimmed, {
         onSuccess: (res) => {
+          // Chặn response của request cũ (lúc đang gõ dở) ghi đè kết quả mới nhất
+          if (seq !== previewSeqRef.current || trimmed !== latestReplyRef.current) {
+            return
+          }
           setDraftGlosses(res.vsl_glosses)
           setMissingTerms(res.missing_terms)
           setPreviewMode(res.mode)
+          setTranslationSource(res.translation_source || "")
           setIsGlossEdited(false)
         },
       })
-    }, 250)
+    }, 450)
 
     return () => window.clearTimeout(timer)
   }, [customReply])
@@ -105,18 +117,8 @@ export function ClinicalDetailPanel({
   const { semantic_frame: frame } = selectedCase
   const isEmergency = frame.intent === "emergency"
 
-  // Gợi ý phản hồi thông minh theo từng tình huống ca bệnh
-  const defaultPresets = [
-    "Mời bạn xuất trình thẻ BHYT / CCCD",
-    "Mời bạn đến Bàn Tiếp Nhận số 1",
-    "Vui lòng ngồi chờ nhân viên y tế đo huyết áp",
-    "Bạn có mang theo đơn thuốc / sổ khám cũ không?",
-  ]
-
-  const contextQuickReplies =
-    frame.doctor_quick_responses?.length > 0
-      ? Array.from(new Set([...frame.doctor_quick_responses, ...defaultPresets]))
-      : defaultPresets
+  // Gợi ý phản hồi thông minh theo từng tình huống ca bệnh từ backend (KB / Semantic Parser)
+  const contextQuickReplies = frame.doctor_quick_responses ?? []
 
   const handleConfirmSend = (sendVsl: boolean) => {
     const trimmed = customReply.trim()
@@ -359,36 +361,38 @@ export function ClinicalDetailPanel({
         </div>
 
         {/* Nút phản hồi nhanh: nạp vào khung xác nhận VSL trước khi gửi */}
-        <div className="flex flex-wrap gap-2">
-          {contextQuickReplies.map((reply) => {
-            const lower = reply.toLowerCase()
-            const isSelected = customReply.trim() === reply.trim()
-            return (
-              <Button
-                key={reply}
-                type="button"
-                variant={isSelected ? "default" : "secondary"}
-                size="sm"
-                disabled={isReplying}
-                onClick={() => setCustomReply(reply)}
-                className="text-xs gap-1.5"
-              >
-                {lower.includes("bhyt") || lower.includes("cccd") ? (
-                  <CreditCard className="size-3.5 text-amber-500" />
-                ) : lower.includes("bàn") || lower.includes("phòng") ? (
-                  <ArrowRightCircle className="size-3.5 text-sky-500" />
-                ) : lower.includes("huyết áp") || lower.includes("thở") ? (
-                  <HeartPulse className="size-3.5 text-rose-500" />
-                ) : lower.includes("?") || lower.includes("không") ? (
-                  <HelpCircle className="size-3.5 text-violet-500" />
-                ) : (
-                  <Send className="size-3" />
-                )}
-                {reply}
-              </Button>
-            )
-          })}
-        </div>
+        {contextQuickReplies.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {contextQuickReplies.map((reply) => {
+              const lower = reply.toLowerCase()
+              const isSelected = customReply.trim() === reply.trim()
+              return (
+                <Button
+                  key={reply}
+                  type="button"
+                  variant={isSelected ? "default" : "secondary"}
+                  size="sm"
+                  disabled={isReplying}
+                  onClick={() => setCustomReply(reply)}
+                  className="text-xs gap-1.5"
+                >
+                  {lower.includes("bhyt") || lower.includes("cccd") ? (
+                    <CreditCard className="size-3.5 text-amber-500" />
+                  ) : lower.includes("bàn") || lower.includes("phòng") ? (
+                    <ArrowRightCircle className="size-3.5 text-sky-500" />
+                  ) : lower.includes("huyết áp") || lower.includes("thở") ? (
+                    <HeartPulse className="size-3.5 text-rose-500" />
+                  ) : lower.includes("?") || lower.includes("không") ? (
+                    <HelpCircle className="size-3.5 text-violet-500" />
+                  ) : (
+                    <Send className="size-3" />
+                  )}
+                  {reply}
+                </Button>
+              )
+            })}
+          </div>
+        )}
 
         {/* Ô nhập hướng dẫn & Khung xác nhận chuỗi VSL trước khi gửi */}
         <form onSubmit={handleCustomSubmit} className="space-y-3 pt-1">
@@ -409,6 +413,11 @@ export function ClinicalDetailPanel({
                   {previewMode === "full_sentence" && !isGlossEdited && (
                     <Badge variant="success" className="text-[10px]">
                       Khớp nguyên câu VSL-GH
+                    </Badge>
+                  )}
+                  {translationSource === "gemini_rag" && !isGlossEdited && (
+                    <Badge variant="default" className="text-[10px]">
+                      Gemini Few-shot RAG
                     </Badge>
                   )}
                 </div>

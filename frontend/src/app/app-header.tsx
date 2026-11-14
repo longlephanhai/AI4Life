@@ -1,8 +1,7 @@
 import { ExternalLink, HandHeart, Moon, Stethoscope, Sun, UserCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { useHealth, useQueue } from "@/hooks/use-signbridge"
-import { cn } from "@/lib/utils"
+import { useQueue } from "@/hooks/use-signbridge"
 
 export type AppViewMode = "kiosk" | "reception"
 
@@ -19,15 +18,13 @@ export function AppHeader({
   isDark,
   onToggleTheme,
 }: AppHeaderProps) {
-  const healthQuery = useHealth()
   const queueQuery = useQueue()
 
   const queueCount = queueQuery.data?.total_cases ?? 0
-  const isModelReady = healthQuery.data?.ai_engine?.is_ready ?? false
 
   return (
     <header className="sticky top-0 z-40 h-16 border-b bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-4 px-4 md:px-8">
+      <div className="mx-auto flex h-full max-w-[1600px] items-center justify-between gap-4 px-4 md:px-6 lg:px-8">
         {/* Brand identity */}
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm sm:size-10">
@@ -52,19 +49,6 @@ export function AppHeader({
 
         {/* Status & actions */}
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          {/* AI Model Ready Pill */}
-          <div className="hidden items-center gap-2 rounded-full border bg-muted/50 px-3 py-1 text-xs md:flex">
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                isModelReady ? "bg-success" : "bg-warning",
-              )}
-            />
-            <span className="font-medium text-muted-foreground">
-              {isModelReady ? "SLTModel v2 Ready (BLEU 89.6%)" : "API Connected"}
-            </span>
-          </div>
-
           {/* Role-specific header action */}
           {mode === "kiosk" ? (
             // Màn người thăm khám: Chỉ hiển thị huy hiệu vai trò, KHÔNG có nút chuyển sang màn tiếp nhận

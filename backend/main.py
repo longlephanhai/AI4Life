@@ -19,6 +19,7 @@ from schemas import SemanticFrame, ParseRequest, RecognizeResponse, RecognitionS
 from semantic_parser import parse_semantic_frame
 from ai_engine import ai_engine
 from vsl_synthesizer import vsl_synthesizer
+import gemini_client
 
 app = FastAPI(
     title="SignBridge AI — Medical Reception API",
@@ -326,6 +327,12 @@ def _match_vsl_sample_id(message: str) -> Optional[str]:
 class VslSynthesizeRequest(BaseModel):
     text: str
     override_glosses: Optional[List[str]] = None
+
+
+@app.get("/api/llm-status")
+def api_llm_status():
+    """Kiểm tra trạng thái kết nối Gemini API cho tầng Few-shot RAG."""
+    return gemini_client.get_status()
 
 
 @app.get("/api/vsl-glosses")

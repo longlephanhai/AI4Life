@@ -7,7 +7,6 @@ import { DialogueSession } from "@/components/kiosk/dialogue-session"
 import { EditTranslationDialog } from "@/components/kiosk/edit-translation-dialog"
 import { FallbackAssistantPanel } from "@/components/kiosk/fallback-assistant-panel"
 import { RecognitionPanel } from "@/components/kiosk/recognition-panel"
-import { ScenarioPicker } from "@/components/kiosk/scenario-picker"
 import { useToast } from "@/components/ui/toast"
 import {
   useAcknowledgeDoctorReply,
@@ -16,19 +15,16 @@ import {
   useQueue,
   useRecognizeVideo,
   useSampleKeypoints,
-  useScenarios,
   useSendPatientMessage,
 } from "@/hooks/use-signbridge"
 import type {
   RecognitionStatus,
   SampleKeypointsResponse,
-  SampleScenario,
   SemanticFrame,
 } from "@/lib/types"
 
 export function KioskWorkspace() {
   const { pushToast } = useToast()
-  const scenariosQuery = useScenarios()
   const queueQuery = useQueue()
   const parseMutation = useParseSemantic()
   const recognizeMutation = useRecognizeVideo()
@@ -37,7 +33,7 @@ export function KioskWorkspace() {
   const ackMutation = useAcknowledgeDoctorReply()
   const sendPatientMsgMutation = useSendPatientMessage()
 
-  const [activeScenarioId, setActiveScenarioId] = React.useState<string | null>(null)
+  const [isManuallyEdited, setIsManuallyEdited] = React.useState(false)
   const [samplePlaybackData, setSamplePlaybackData] =
     React.useState<SampleKeypointsResponse | null>(null)
   const [glosses, setGlosses] = React.useState<string[]>([])
@@ -65,6 +61,7 @@ export function KioskWorkspace() {
     (sampleId: string, showToast = false) => {
       sampleKeypointsMutation.mutate(sampleId, {
         onSuccess: (data) => {
+          setIsManuallyEdited(false)
           setSamplePlaybackData(data)
           const rec = data.recognition
           const recognized = rec.is_recognized !== false
@@ -89,31 +86,9 @@ export function KioskWorkspace() {
     [pushToast, sampleKeypointsMutation],
   )
 
-  const applyScenario = (scenario: SampleScenario) => {
-    setActiveScenarioId(scenario.id)
-    setActiveTicket(null)
-    loadSampleKeypointsAndInfer(scenario.id, true)
-  }
-
-  const handleTriggerEmergency = () => {
-    applyScenario({
-      id: "SENT115",
-      category: "Cấp cứu đỏ",
-      title: "Cảnh báo cấp cứu: Cảm thấy khó thở",
-      glosses: ["TÔI", "CẢM-THẤY", "THỞ-KHÓ"],
-      translation: "Tôi cảm thấy khó thở.",
-      description: "Kích hoạt cảnh báo đỏ ưu tiên tuyệt đối.",
-    })
-    pushToast({
-      title: "Đã kích hoạt chế độ Cấp Cứu Khẩn Cấp",
-      description: "Nhấn [ĐÚNG, GỬI BÀN TIẾP NHẬN] để chuyển ngay lên đầu hàng đợi cấp cứu.",
-      tone: "destructive",
-    })
-  }
-
   // Phương thức 1 không nhận diện được (Out-of-vocabulary hoặc dưới ngưỡng an toàn) ➔ Kích hoạt 5 Phương án dự phòng
   const handleSimulateUnknownSign = () => {
-    setActiveScenarioId(null)
+    setIsManuallyEdited(false)
     setActiveTicket(null)
     setIsRecognized(false)
     setRecognitionStatus("out_of_vocabulary")
@@ -155,7 +130,7 @@ export function KioskWorkspace() {
 
   const handleUploadVideo = (file: File) => {
     setActiveVideoName(file.name)
-    setActiveScenarioId(null)
+    setIsManuallyEdited(false)
     setActiveTicket(null)
 
     recognizeMutation.mutate(file, {
@@ -223,7 +198,7 @@ export function KioskWorkspace() {
     confirmMutation.mutate(
       {
         patient_name: "Bệnh nhân VSL",
-        status: activeScenarioId === "EDITED" ? "edited" : "confirmed",
+        status: isManuallyEdited ? "edited" : "confirmed",
         confirmed_text: translation,
         gloss_sequence: glosses,
         confidence,
@@ -248,7 +223,7 @@ export function KioskWorkspace() {
       { translation: newText },
       {
         onSuccess: (parsed) => {
-          setActiveScenarioId("EDITED")
+          setIsManuallyEdited(true)
           setIsRecognized(true)
           setRecognitionStatus("recognized")
           setFallbackMessage(null)
@@ -337,7 +312,7 @@ export function KioskWorkspace() {
 
   const handleResetKiosk = () => {
     setActiveTicket(null)
-    setActiveScenarioId(null)
+    setIsManuallyEdited(false)
     setSamplePlaybackData(null)
     setGlosses([])
     setTranslation("")
@@ -392,7 +367,7 @@ export function KioskWorkspace() {
   const showFallbackOptions = !isRecognized || forceShowFallback
 
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto">
+    <div className="flex w-full flex-col gap-6">
       {/* 
         =========================================================================
         TRẠNG THÁI 1: BÀN KHAI BÁO LIỀN MẠCH (KHI CHƯA CÓ VÉ activeTicket === null)
@@ -401,14 +376,6 @@ export function KioskWorkspace() {
       */}
       {!activeTicket && (
         <div className="flex flex-col gap-6">
-          <ScenarioPicker
-            scenarios={scenariosQuery.data ?? []}
-            activeScenarioId={activeScenarioId}
-            onSelectScenario={applyScenario}
-            onTriggerEmergency={handleTriggerEmergency}
-            isLoading={scenariosQuery.isLoading}
-          />
-
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
             {/* Cột trái: Phương thức 1 — Camera & Ký hiệu VSL */}
             <div className="flex flex-col gap-4 lg:col-span-7">
@@ -419,22 +386,19 @@ export function KioskWorkspace() {
                 isLoadingSample={sampleKeypointsMutation.isPending}
                 onUploadVideo={handleUploadVideo}
                 onCameraActivated={() => {}}
-                onPlaySample={() =>
-                  loadSampleKeypointsAndInfer(activeScenarioId ?? "SENT001", true)
-                }
                 onSimulateUnknownSign={handleSimulateUnknownSign}
               />
 
               {/* Lối chuyển nhanh khi người dùng không muốn ký hiệu */}
               {!showFallbackOptions && (
-                <div className="flex items-center justify-between rounded-xl border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/30 px-5 py-3.5 text-sm text-muted-foreground">
                   <span>
-                    💡 <strong>Phương thức 1:</strong> Đứng chính diện camera và làm ký hiệu (hoặc chọn mẫu ở trên).
+                    💡 <strong>Phương thức 1:</strong> Đứng chính diện camera và làm ký hiệu hoặc tải video lên.
                   </span>
                   <button
                     type="button"
                     onClick={() => setForceShowFallback(true)}
-                    className="font-semibold text-primary underline underline-offset-4 hover:text-primary/80 ml-2"
+                    className="cursor-pointer font-semibold text-primary underline underline-offset-4 hover:text-primary/80"
                   >
                     Gặp khó khăn? Mở 5 Phương Án Dự Phòng ➔
                   </button>
@@ -472,7 +436,7 @@ export function KioskWorkspace() {
                       })
                     }}
                     onPlaySampleGuide={() =>
-                      loadSampleKeypointsAndInfer(activeScenarioId ?? "SENT001", true)
+                      loadSampleKeypointsAndInfer("SENT001", true)
                     }
                     onApplyFallbackText={handleApplyFallbackText}
                     onRequestHumanInterpreter={handleRequestHumanHelp}
@@ -512,11 +476,11 @@ export function KioskWorkspace() {
                   )}
 
                   {!translation && (
-                    <Card className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground border-dashed">
-                      <Video className="size-8 mb-2 opacity-50" />
-                      <p className="text-sm font-semibold">Chờ kết quả ký hiệu</p>
-                      <p className="text-xs mt-1 max-w-xs">
-                        Bấm [Bật Camera Tập Ký Hiệu] hoặc chọn một kịch bản mẫu phía trên để bắt đầu.
+                    <Card className="flex flex-col items-center justify-center p-10 text-center text-muted-foreground border-dashed">
+                      <Video className="size-10 mb-3 opacity-50" />
+                      <p className="text-base font-semibold text-foreground">Chờ kết quả ký hiệu</p>
+                      <p className="text-sm mt-1.5 max-w-md leading-relaxed">
+                        Bấm <strong>[Bật Camera Tập Ký Hiệu]</strong> hoặc tải lên video ký hiệu để bắt đầu khai báo triệu chứng.
                       </p>
                     </Card>
                   )}

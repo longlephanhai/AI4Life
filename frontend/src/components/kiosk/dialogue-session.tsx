@@ -108,8 +108,10 @@ export function DialogueSession({
     doctorReply?.send_vsl ?? latestClinicianMsg?.send_vsl ?? true
   const activeApprovedGlosses =
     doctorReply?.vsl_glosses ?? latestClinicianMsg?.vsl_glosses
+  const activeMissingTerms =
+    doctorReply?.missing_terms ?? latestClinicianMsg?.missing_terms ?? []
   const activeVslMode = doctorReply?.vsl_mode ?? latestClinicianMsg?.vsl_mode
-  const activePromptKey = `${doctorReply?.replied_at ?? latestClinicianMsg?.timestamp ?? ""}:${activePrompt ?? ""}:${activeSendVsl}:${(activeApprovedGlosses ?? []).join(",")}`
+  const activePromptKey = `${doctorReply?.replied_at ?? latestClinicianMsg?.timestamp ?? ""}:${activePrompt ?? ""}:${activeSendVsl}:${(activeApprovedGlosses ?? []).join(",")}:${activeMissingTerms.join(",")}`
 
   // Tự động tổng hợp & phát hoạt ảnh VSL đúng theo chuỗi Gloss đã được nhân viên xác nhận
   React.useEffect(() => {
@@ -121,6 +123,7 @@ export function DialogueSession({
       setSynthesizedVsl(null)
       return
     }
+    const inheritedMissing = activeMissingTerms
     synthesizeVslMutation.mutate(
       {
         text: activePrompt,
@@ -129,11 +132,15 @@ export function DialogueSession({
       },
       {
         onSuccess: (res) => {
-          setSynthesizedVsl(res)
+          setSynthesizedVsl({
+            ...res,
+            missing_terms:
+              res.missing_terms.length > 0 ? res.missing_terms : inheritedMissing,
+          })
         },
       },
     )
-  }, [activePrompt, activePromptKey, activeSendVsl, activeVslMode, activeApprovedGlosses])
+  }, [activePrompt, activePromptKey, activeSendVsl, activeVslMode, activeApprovedGlosses, activeMissingTerms])
 
   const handleVideoCaptured = async (file: File) => {
     setVslDraft(null)
@@ -171,7 +178,7 @@ export function DialogueSession({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 py-2">
+    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 py-2">
       {/* 1. Thanh tiêu đề phiên đối thoại trực tiếp */}
       <Card className="flex flex-wrap items-center justify-between gap-3 border-success/40 bg-success/10 px-5 py-3.5 shadow-sm">
         <div className="flex items-center gap-3">

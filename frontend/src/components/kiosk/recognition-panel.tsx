@@ -32,13 +32,13 @@ export function RecognitionPanel({
     <Card
       aria-live="polite"
       className={cn(
-        "flex flex-col gap-3 p-5",
+        "flex flex-col gap-4 p-6",
         isEmergency && "border-destructive ring-2 ring-destructive/20",
         !isRecognized && "border-warning ring-2 ring-warning/20",
       )}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+        <div className="flex items-center gap-2.5">
           <span
             className={cn(
               "size-2.5 rounded-full",
@@ -51,7 +51,7 @@ export function RecognitionPanel({
                     : "bg-muted-foreground/40",
             )}
           />
-          <h2 className="text-base font-semibold">Kết Quả Phiên Dịch Ngôn Ngữ Ký Hiệu</h2>
+          <h2 className="text-lg font-semibold">Kết Quả Phiên Dịch Ngôn Ngữ Ký Hiệu</h2>
         </div>
 
         {!hasResult ? (
@@ -66,11 +66,11 @@ export function RecognitionPanel({
         )}
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Chuỗi Ký Hiệu Nhận Diện (Gloss Sequence)
         </p>
-        <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border bg-muted/40 p-2">
+        <div className="flex min-h-12 flex-wrap items-center gap-2 rounded-xl border bg-muted/40 p-3">
           {isPending ? (
             <span className="text-sm text-muted-foreground">Đang giải mã ký hiệu...</span>
           ) : glosses.length > 0 ? (
@@ -89,13 +89,13 @@ export function RecognitionPanel({
         </div>
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Câu Dịch Tiếng Việt Hoàn Chỉnh
         </p>
         <div
           className={cn(
-            "flex min-h-14 items-center rounded-xl border px-4 py-3",
+            "flex min-h-20 items-center rounded-xl border px-4 py-3.5",
             isEmergency
               ? "border-destructive/40 bg-destructive/10 text-destructive"
               : !isRecognized
@@ -110,31 +110,31 @@ export function RecognitionPanel({
               ⚠️ {fallbackMessage || "Chưa nhận diện chắc chắn ký hiệu. Để đảm bảo an toàn y khoa, hệ thống không tự ý đoán nghĩa."}
             </p>
           ) : hasResult ? (
-            <p className="font-display text-lg font-semibold leading-snug">
+            <p className="font-display text-xl font-semibold leading-snug">
               {translation}
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              Chưa có kết quả. Hãy bật Camera ra ký hiệu, tải video MP4 hoặc chọn mẫu kiểm thử.
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Chưa có kết quả. Hãy bật Camera ra ký hiệu hoặc tải video MP4 lên để nhận diện.
             </p>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-        <div className="flex items-start gap-2 rounded-xl border bg-muted/30 p-2.5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="flex items-start gap-2.5 rounded-xl border bg-muted/30 p-3.5">
           <Stethoscope className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
           <div className="space-y-0.5">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Chuyên Khoa Đề Xuất
             </p>
-            <p className="text-xs font-semibold">
+            <p className="text-sm font-semibold">
               {hasResult ? (frame?.specialty ?? "Quầy Tiếp Đón Chung") : "Chờ phân luồng"}
             </p>
           </div>
         </div>
 
-        <div className="flex items-start gap-2 rounded-xl border bg-muted/30 p-2.5">
+        <div className="flex items-start gap-2.5 rounded-xl border bg-muted/30 p-3.5">
           <AlertTriangle
             className={cn(
               "mt-0.5 size-4 shrink-0",
@@ -154,7 +154,7 @@ export function RecognitionPanel({
             </p>
             <p
               className={cn(
-                "text-xs font-semibold",
+                "text-sm font-semibold",
                 !hasResult && "text-muted-foreground",
                 hasResult && isEmergency && "text-destructive",
                 hasResult && !isEmergency && needsReview && "text-warning-foreground",

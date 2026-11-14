@@ -43,7 +43,7 @@ export function App() {
           onToggleTheme={() => setIsDark((prev) => !prev)}
         />
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-8 md:py-8">
+        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6 lg:px-8">
           <AnimatePresence mode="wait" initial={false}>
             {mode === "kiosk" ? (
               <motion.div
@@ -70,7 +70,7 @@ export function App() {
         </main>
 
         <footer className="border-t py-4 text-center text-xs text-muted-foreground/70">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 md:px-8">
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2 px-4 md:px-6 lg:px-8">
             <p>SignBridge AI — Nền tảng Tiếp nhận Y tế Ban đầu cho Người Khiếm thính (VSL)</p>
             <div className="flex items-center gap-3">
               {mode === "kiosk" ? (

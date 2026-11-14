@@ -17,10 +17,28 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
+import gemini_client
 
 logger = logging.getLogger("vsl_synthesizer")
+
+VSL_GLOSS_RESPONSE_SCHEMA: Dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "glosses": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "description": "Chuỗi gloss VSL đúng thứ tự ngữ pháp VSL, CHỈ dùng các từ có trong danh sách cho phép.",
+        },
+        "untranslatable_terms": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "description": "Các số phòng (vd P.204), tên riêng hoặc từ hoàn toàn không thể quy đổi sang danh sách gloss.",
+        },
+    },
+    "required": ["glosses", "untranslatable_terms"],
+}
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATASET_JSON_PATH = BASE_DIR / "AI" / "data" / "dataset.json"
@@ -71,8 +89,8 @@ WH_PHRASES = (
 )
 WH_TOKENS: Set[str] = {"gì", "đâu", "nào", "sao", "mấy"}
 QUESTION_END_GLOSSES: Set[str] = {
-    "CÓ-KHÔNG", "PHẢI-KHÔNG", "ĐÚNG-KHÔNG", "CẦN-KHÔNG", "ĐƯỢC-KHÔNG",
-    "ĐAU-KHÔNG", "SAO-KHÔNG", "BAO-LÂU", "KHI-NÀO", "Ở-ĐÂU", "BAO-NHIÊU",
+    "CÓ-KHÔNG", "CÓ-CHƯA", "PHẢI-KHÔNG", "ĐÚNG-KHÔNG", "CẦN-KHÔNG", "ĐƯỢC-KHÔNG",
+    "ĐAU-KHÔNG", "SAO-KHÔNG", "BAO-LÂU", "KHI-NÀO", "BAO-GIỜ", "Ở-ĐÂU", "BAO-NHIÊU",
     "BỆNH-GÌ", "TẠI-SAO", "GÌ", "ĐÂU",
 }
 
@@ -89,6 +107,7 @@ class VSLSynthesizer:
         self.tfidf_vocab: Dict[str, int] = {}
         self.tfidf_idf: Optional[np.ndarray] = None
         self.tfidf_matrix: Optional[np.ndarray] = None
+        self.llm_cache: Dict[str, Tuple[List[str], List[str]]] = {}
 
         self.canonical_cx = 0.50
         self.canonical_cy = 0.34
@@ -277,19 +296,13 @@ class VSLSynthesizer:
         )
         return is_wh, is_yn
 
-    def _retrieve_similar_sentence(self, text: str, norm_text: str) -> Optional[dict]:
-        """Truy xuất câu gần nghĩa nhất trong dataset.json bằng Cosine TF-IDF kèm kiểm định an toàn."""
+    def _vectorize_tfidf(self, norm_text: str) -> Optional[np.ndarray]:
+        """Mã hóa câu tiếng Việt thành vector TF-IDF chuẩn hóa L2."""
         if self.tfidf_matrix is None or self.tfidf_idf is None or not self.tfidf_vocab:
             return None
-
-        # Không khớp truy xuất câu cũ nếu trong câu bác sĩ có mã phòng / số cụ thể (VD: P.204)
-        if re.search(r"(?:p\.\d+|phòng\s+\d+|\d{2,})", text, flags=re.IGNORECASE):
-            return None
-
         q_tokens = self._tokenize_for_tfidf(norm_text)
         if not q_tokens:
             return None
-
         q_vec = np.zeros(len(self.tfidf_vocab), dtype=np.float32)
         tf = Counter(q_tokens)
         for tok, cnt in tf.items():
@@ -300,6 +313,46 @@ class VSLSynthesizer:
         if q_norm == 0:
             return None
         q_vec /= q_norm
+        return q_vec
+
+    def retrieve_fewshot_examples(self, norm_text: str, top_k: int = 5) -> List[dict]:
+        """Truy xuất Top-K cặp câu (tiếng Việt -> Gloss VSL) gần nghĩa nhất từ VSL-GH làm ví dụ RAG."""
+        q_vec = self._vectorize_tfidf(norm_text)
+        if q_vec is None or self.tfidf_matrix is None:
+            return []
+
+        sims = self.tfidf_matrix @ q_vec
+        ranked_indices = np.argsort(sims)[::-1]
+        examples: List[dict] = []
+        seen_norms: Set[str] = set()
+
+        for idx in ranked_indices:
+            score = float(sims[int(idx)])
+            if score <= 0.05:
+                break
+            entry = self.tfidf_entries[int(idx)]
+            key = entry["norm_text"]
+            if key in seen_norms:
+                continue
+            seen_norms.add(key)
+            examples.append({
+                "vi": entry["norm_text"],
+                "glosses": entry["gloss_sequence"],
+                "score": round(score, 3),
+            })
+            if len(examples) >= top_k:
+                break
+        return examples
+
+    def _retrieve_similar_sentence(self, text: str, norm_text: str) -> Optional[dict]:
+        """Truy xuất câu gần nghĩa nhất trong dataset.json bằng Cosine TF-IDF kèm kiểm định an toàn."""
+        # Không khớp truy xuất câu cũ nếu trong câu bác sĩ có mã phòng / số cụ thể (VD: P.204)
+        if re.search(r"(?:p\.\d+|phòng\s+\d+|\d{2,})", text, flags=re.IGNORECASE):
+            return None
+
+        q_vec = self._vectorize_tfidf(norm_text)
+        if q_vec is None or self.tfidf_matrix is None:
+            return None
 
         sims = self.tfidf_matrix @ q_vec
         best_idx = int(np.argmax(sims))
@@ -366,32 +419,140 @@ class VSLSynthesizer:
             bridge[s] = np.where(both_valid, linear, nearest)
         return bridge
 
-    def text_to_vsl_glosses(self, text: str) -> Tuple[List[str], List[str], Optional[dict]]:
+    def _build_vsl_rag_prompt(self, text: str, examples: List[dict]) -> Tuple[str, str]:
+        """Tạo System Prompt + User Prompt cho bài toán dịch Tiếng Việt -> Gloss VSL bằng Few-shot RAG."""
+        vocab_list = ", ".join(self.list_available_glosses())
+        examples_block = "\n".join(
+            f"- Tiếng Việt: \"{ex['vi']}\"  ==>  Gloss VSL: {json.dumps(ex['glosses'], ensure_ascii=False)}"
+            for ex in examples
+        ) or "(Không có câu mẫu gần nghĩa)"
+
+        system_prompt = (
+            "Bạn là chuyên gia chuyển ngữ từ Tiếng Việt y khoa sang chuỗi Gloss Ngôn ngữ Ký hiệu Việt Nam (VSL).\n"
+            "QUY TẮC BẮT BUỘC:\n"
+            "1. CHỈ ĐƯỢC PHÉP chọn các từ trong DANH SÁCH GLOSS HỢP LỆ bên dưới (giữ nguyên chữ in hoa và dấu gạch nối). "
+            "TUYỆT ĐỐI KHÔNG tự bịa gloss ngoài danh sách.\n"
+            "2. Lược bỏ hư từ tiếng Việt (như 'bạn', 'ơi', 'ạ', 'thì', 'là', 'bắt đầu', 'vui lòng', 'hãy').\n"
+            "3. Sắp xếp theo ngữ pháp VSL như các ví dụ mẫu: Chủ đề / Triệu chứng / Hành động đặt trước; "
+            "từ để hỏi (như KHI-NÀO, BAO-LÂU, Ở-ĐÂU, BỆNH-GÌ, BAO-NHIÊU, NHƯ-THẾ-NÀO/SAO-KHÔNG, CÓ-KHÔNG) đặt ở CUỐI câu.\n"
+            "4. Câu hỏi Có/Không hoặc '...chưa?' thường kết thúc bằng CÓ-KHÔNG hoặc CÓ-CHƯA (hoặc ĐƯỢC-KHÔNG, CẦN-KHÔNG, PHẢI-KHÔNG).\n"
+            "5. Dịch theo Ý NGHĨA súc tích (tối đa 3-7 gloss cốt lõi), không ghép máy móc theo mặt chữ "
+            "(vd: 'đau chỗ nào / chổ nào' -> ['ĐAU', 'Ở-ĐÂU'], không chọn CHỖ-KHÁC; 'đợi một chút' -> ['ĐỢI', 'ÍT']).\n"
+            "6. Các số phòng (VD: P.204, P.105), tên riêng, hoặc cả cụm từ hoàn toàn không có trong danh sách gloss "
+            "thì đưa vào `untranslatable_terms` để hiển thị bổ sung bằng chữ.\n\n"
+            f"DANH SÁCH GLOSS HỢP LỆ ({len(self.gloss_clips) - (1 if 'IX' in self.gloss_clips else 0)} từ):\n{vocab_list}"
+        )
+
+        user_prompt = (
+            f"CÁC CẶP CÂU MẪU VSL-GH GẦN NGHĨA (RAG Context):\n{examples_block}\n\n"
+            f"CÂU TIẾNG VIỆT CẦN CHUYỂN SANG GLOSS VSL:\n\"{text}\"\n\n"
+            "Hãy trả về JSON gồm `glosses` (tối đa 12 gloss cốt lõi, dễ hiểu nhất cho người Điếc) và `untranslatable_terms`."
+        )
+        return system_prompt, user_prompt
+
+    def _validate_llm_glosses(
+        self,
+        norm_text: str,
+        raw_glosses: List[str],
+        raw_missing: List[str],
+    ) -> Tuple[List[str], List[str]]:
+        """Guardrail kiểm tra từng gloss do LLM sinh ra phải tồn tại trong kho clip VSL-GH."""
+        validated: List[str] = []
+        missing: List[str] = [str(m).strip() for m in raw_missing if str(m).strip()]
+
+        for item in raw_glosses:
+            cand = str(item).strip().upper().replace(" ", "-")
+            if not cand or cand == "IX":
+                continue
+            if cand in self.gloss_clips:
+                if not validated or validated[-1] != cand:
+                    validated.append(cand)
+            else:
+                logger.warning("Guardrail loại bỏ gloss ngoài từ điển do LLM sinh: %s", cand)
+                missing.append(cand.lower().replace("-", " "))
+
+        is_wh_q, is_yes_no_q = self._detect_question_type(norm_text)
+        if is_yes_no_q and not any(g in QUESTION_END_GLOSSES for g in validated):
+            if "CÓ-KHÔNG" in self.gloss_clips:
+                validated.append("CÓ-KHÔNG")
+        elif is_wh_q or any(g in QUESTION_END_GLOSSES for g in validated):
+            tail = [g for g in validated if g in QUESTION_END_GLOSSES]
+            head = [g for g in validated if g not in QUESTION_END_GLOSSES]
+            validated = head + tail
+
+        # Loại trùng missing giữ nguyên thứ tự
+        dedup_missing: List[str] = []
+        seen_m: Set[str] = set()
+        for m in missing:
+            ml = m.lower()
+            if ml not in seen_m:
+                seen_m.add(ml)
+                dedup_missing.append(m)
+        return validated, dedup_missing
+
+    def _translate_via_gemini_rag(
+        self,
+        text: str,
+        norm_text: str,
+    ) -> Optional[Tuple[List[str], List[str]]]:
+        """Dịch câu tiếng Việt sang Gloss VSL bằng Few-shot RAG + Gemini Structured JSON Output."""
+        if norm_text in self.llm_cache:
+            return self.llm_cache[norm_text]
+
+        if not gemini_client.is_configured():
+            return None
+
+        examples = self.retrieve_fewshot_examples(norm_text, top_k=5)
+        system_prompt, user_prompt = self._build_vsl_rag_prompt(text, examples)
+        result = gemini_client.generate_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_schema=VSL_GLOSS_RESPONSE_SCHEMA,
+            temperature=0.1,
+        )
+        if not result or not isinstance(result.get("glosses"), list):
+            return None
+
+        glosses, missing = self._validate_llm_glosses(
+            norm_text=norm_text,
+            raw_glosses=result.get("glosses", []),
+            raw_missing=result.get("untranslatable_terms", []),
+        )
+        if not glosses:
+            return None
+
+        if len(self.llm_cache) >= 256:
+            self.llm_cache.clear()
+        self.llm_cache[norm_text] = (glosses, missing)
+        return glosses, missing
+
+    def _plan_gloss_sequence(
+        self,
+        text: str,
+    ) -> Tuple[List[str], List[str], Optional[dict], str]:
         """
         Chuyển câu tiếng Việt của bác sĩ thành:
-        (gloss_sequence, missing_terms, matched_full_sentence_entry)
+        (gloss_sequence, missing_terms, matched_full_sentence_entry, translation_source)
         """
         norm = self._normalize_text(text)
         if not norm:
-            return [], [], None
+            return [], [], None, "empty"
 
         # 1. Khớp nguyên câu chuẩn trong VSL-GH
         if norm in self.sentence_index:
             entry = self.sentence_index[norm]
-            return entry["gloss_sequence"], [], entry
+            return entry["gloss_sequence"], [], entry, "exact_dataset"
 
         # 2. Kiểm tra quy tắc an toàn cho các câu hỏi lâm sàng nhạy cảm
         for triggers, template_glosses in SAFETY_CLINICAL_RULES:
             if any(tr in norm for tr in triggers):
                 missing = re.findall(r"(?:p\.\d+|phòng\s+\d+|\d{2,})", text, flags=re.IGNORECASE)
                 valid_glosses = [g for g in template_glosses if g in self.gloss_clips]
-                return valid_glosses, [m.strip() for m in missing if m.strip()], None
+                return valid_glosses, [m.strip() for m in missing if m.strip()], None, "safety_rule"
 
         # 3. Truy xuất Data-driven TF-IDF trên toàn bộ câu chuẩn & biến thể góc nhìn bác sĩ
         retrieved = self._retrieve_similar_sentence(text, norm)
         if retrieved:
-            # Nếu câu gốc trong dataset ở ngôi tường thuật ("Bác sĩ hỏi tôi..."),
-            # lọc bỏ ngôi tự xưng để chuyển sang góc nhìn bác sĩ đang hỏi trực tiếp bệnh nhân
             if (
                 retrieved["is_full"]
                 and retrieved["norm_text"].startswith("bác sĩ hỏi tôi ")
@@ -402,12 +563,18 @@ class VSLSynthesizer:
                     if g not in ("TÔI", "BÁC-SĨ", "HỎI", "HỎI-TÔI")
                 ]
                 if clinician_glosses:
-                    return clinician_glosses, [], None
+                    return clinician_glosses, [], None, "tfidf_rag"
             if retrieved["is_full"] and retrieved["entry"] is not None:
-                return retrieved["gloss_sequence"], [], retrieved["entry"]
-            return retrieved["gloss_sequence"], [], None
+                return retrieved["gloss_sequence"], [], retrieved["entry"], "tfidf_rag"
+            return retrieved["gloss_sequence"], [], None, "tfidf_rag"
 
-        # 4. Phân tách cụm từ dựa trên Auto-Lexicon 368 gloss + sắp xếp ngữ pháp câu hỏi VSL
+        # 3.5. Few-shot RAG + Gemini Structured Output cho câu tự do ngoài mẫu
+        llm_res = self._translate_via_gemini_rag(text, norm)
+        if llm_res:
+            llm_glosses, llm_missing = llm_res
+            return llm_glosses, llm_missing, None, "gemini_rag"
+
+        # 4. Fallback offline: phân tách cụm từ dựa trên Auto-Lexicon 368 gloss + ngữ pháp câu hỏi VSL
         is_wh_q, is_yes_no_q = self._detect_question_type(norm)
         tokens = norm.split()
         i = 0
@@ -445,7 +612,15 @@ class VSLSynthesizer:
             head = [g for g in dedup if g not in QUESTION_END_GLOSSES]
             dedup = head + tail
 
-        return dedup, missing_terms, None
+        return dedup, missing_terms, None, "offline_lexicon"
+
+    def text_to_vsl_glosses(self, text: str) -> Tuple[List[str], List[str], Optional[dict]]:
+        """
+        Chuyển câu tiếng Việt của bác sĩ thành:
+        (gloss_sequence, missing_terms, matched_full_sentence_entry)
+        """
+        glosses, missing, full_entry, _ = self._plan_gloss_sequence(text)
+        return glosses, missing, full_entry
 
     def list_available_glosses(self) -> List[str]:
         """Trả về danh sách các gloss có dữ liệu khung xương thật để nhân viên chọn/chỉnh sửa."""
@@ -453,12 +628,13 @@ class VSLSynthesizer:
 
     def preview_gloss_plan(self, text: str) -> dict:
         """Xem trước chuỗi Gloss & từ ngoài từ điển (dùng gắn vào metadata tin nhắn)."""
-        glosses, missing, full_entry = self.text_to_vsl_glosses(text)
+        glosses, missing, full_entry, source = self._plan_gloss_sequence(text)
         return {
             "mode": "full_sentence" if full_entry else ("stitched" if glosses else "text_only"),
             "matched_sample_id": full_entry["video_id"] if full_entry else None,
             "vsl_glosses": glosses,
             "missing_terms": missing,
+            "translation_source": source,
         }
 
     def synthesize(

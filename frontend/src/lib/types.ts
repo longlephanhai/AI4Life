@@ -98,6 +98,13 @@ export interface VslPreviewResponse {
   matched_sample_id: string | null
   vsl_glosses: string[]
   missing_terms: string[]
+  translation_source?:
+    | "exact_dataset"
+    | "safety_rule"
+    | "tfidf_rag"
+    | "gemini_rag"
+    | "offline_lexicon"
+    | "empty"
 }
 
 export interface VslSynthesizeResponse {

@@ -124,6 +124,15 @@ class TriageKnowledgeBase:
                     slots[slot_key] = rule.get("value")
                     break
 
+        # Bắt động mọi mốc thời gian dạng số bất kỳ (VD: "5 ngày", "2 tuần", "4 tháng")
+        if not slots["onset"]:
+            m_onset = re.search(
+                r"\b(\d+(?:[.,]\d+)?)[-\s]*(NGÀY|TUẦN|THÁNG|GIỜ|NĂM)\b",
+                text_upper,
+            )
+            if m_onset:
+                slots["onset"] = f"khoảng {m_onset.group(1)} {m_onset.group(2).lower()} trước"
+
         for rule in self.slot_patterns.get("allergy", []):
             if any(_match_trigger(t, text_upper, tokens) for t in rule.get("triggers", [])):
                 slots["allergy_status"] = rule.get("status", "confirmed")
