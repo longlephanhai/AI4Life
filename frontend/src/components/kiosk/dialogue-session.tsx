@@ -86,7 +86,6 @@ export function DialogueSession({
   const [vslDraft, setVslDraft] = React.useState<RecognizeResponse | null>(null)
   const [synthesizedVsl, setSynthesizedVsl] =
     React.useState<VslSynthesizeResponse | null>(null)
-  const [customText, setCustomText] = React.useState("")
   const threadEndRef = React.useRef<HTMLDivElement | null>(null)
   const lastSynthesizedPromptRef = React.useRef<string>("")
 
@@ -111,6 +110,10 @@ export function DialogueSession({
   const activeMissingTerms =
     doctorReply?.missing_terms ?? latestClinicianMsg?.missing_terms ?? []
   const activeVslMode = doctorReply?.vsl_mode ?? latestClinicianMsg?.vsl_mode
+  const dynamicQuickReplies =
+    doctorReply?.patient_quick_replies ??
+    latestClinicianMsg?.patient_quick_replies ??
+    []
   const activePromptKey = `${doctorReply?.replied_at ?? latestClinicianMsg?.timestamp ?? ""}:${activePrompt ?? ""}:${activeSendVsl}:${(activeApprovedGlosses ?? []).join(",")}:${activeMissingTerms.join(",")}`
 
   // Tự động tổng hợp & phát hoạt ảnh VSL đúng theo chuỗi Gloss đã được nhân viên xác nhận
@@ -167,14 +170,6 @@ export function DialogueSession({
     })
     setSelectedRegion(null)
     setReplyMode("none")
-  }
-
-  const handleCustomSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const trimmed = customText.trim()
-    if (!trimmed) return
-    onSendPatientMessage({ text: trimmed, source: "text" })
-    setCustomText("")
   }
 
   return (
@@ -316,6 +311,32 @@ export function DialogueSession({
           Chọn cách bạn muốn trả lời lại nhân viên y tế:
         </p>
 
+        {/* Nút trả lời nhanh ĐỘNG khớp đúng câu hỏi của nhân viên y tế (Zero-Typing) */}
+        {dynamicQuickReplies.length > 0 && (
+          <div className="space-y-2 rounded-xl border border-primary/25 bg-primary/5 p-3.5">
+            <p className="text-xs font-bold uppercase tracking-wider text-primary">
+              Chạm để trả lời nhanh câu hỏi trên:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {dynamicQuickReplies.map((reply) => (
+                <Button
+                  key={reply}
+                  type="button"
+                  size="lg"
+                  variant="secondary"
+                  disabled={isSendingMessage}
+                  onClick={() =>
+                    onSendPatientMessage({ text: reply, source: "quick_reply" })
+                  }
+                  className="h-auto min-h-11 px-4 py-2 text-sm font-semibold border border-primary/20 bg-background hover:bg-primary hover:text-primary-foreground transition-colors"
+                >
+                  {reply}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Nút 1 chạm */}
         <div className="flex flex-wrap gap-2.5">
           {activeCategory === "question_yes_no" && (
@@ -400,22 +421,27 @@ export function DialogueSession({
         </div>
 
         {/* Gợi ý nhanh thời gian / dị ứng */}
-        <div className="flex flex-wrap gap-1.5">
-          {QUICK_DURATION_CHIPS.map((chip) => (
-            <Button
-              key={chip}
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={isSendingMessage}
-              onClick={() =>
-                onSendPatientMessage({ text: chip, source: "quick_reply" })
-              }
-              className="h-8 text-xs"
-            >
-              {chip}
-            </Button>
-          ))}
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Hoặc chạm nhanh thông tin thời gian / dị ứng:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_DURATION_CHIPS.map((chip) => (
+              <Button
+                key={chip}
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isSendingMessage}
+                onClick={() =>
+                  onSendPatientMessage({ text: chip, source: "quick_reply" })
+                }
+                className="h-9 text-xs font-medium"
+              >
+                {chip}
+              </Button>
+            ))}
+          </div>
         </div>
 
         {/* Khung Camera VSL trả lời trực tiếp */}
@@ -486,25 +512,6 @@ export function DialogueSession({
             )}
           </div>
         )}
-
-        {/* Nhập chữ dự phòng nếu cần */}
-        <form onSubmit={handleCustomSubmit} className="flex items-center gap-2">
-          <input
-            type="text"
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-            placeholder="Hoặc gõ thêm câu trả lời ngắn nếu cần..."
-            className="h-10 flex-1 rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
-          />
-          <Button
-            type="submit"
-            disabled={isSendingMessage || !customText.trim()}
-            className="h-10 gap-1.5"
-          >
-            <Send className="size-4" />
-            Gửi
-          </Button>
-        </form>
       </Card>
     </div>
   )

@@ -73,6 +73,7 @@ export interface DoctorReply {
   vsl_mode?: "full_sentence" | "stitched" | "text_only"
   vsl_glosses?: string[]
   missing_terms?: string[]
+  patient_quick_replies?: string[]
   send_vsl?: boolean
   patient_ack?: PatientAck | null
 }
@@ -89,6 +90,7 @@ export interface DialogueMessage {
   vsl_mode?: "full_sentence" | "stitched" | "text_only"
   vsl_glosses?: string[]
   missing_terms?: string[]
+  patient_quick_replies?: string[]
   send_vsl?: boolean
   timestamp: string
 }

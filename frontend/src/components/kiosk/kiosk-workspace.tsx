@@ -4,7 +4,6 @@ import { Card } from "@/components/ui/card"
 import { CameraStage } from "@/components/kiosk/camera-stage"
 import { ConfirmationBanner } from "@/components/kiosk/confirmation-banner"
 import { DialogueSession } from "@/components/kiosk/dialogue-session"
-import { EditTranslationDialog } from "@/components/kiosk/edit-translation-dialog"
 import { FallbackAssistantPanel } from "@/components/kiosk/fallback-assistant-panel"
 import { RecognitionPanel } from "@/components/kiosk/recognition-panel"
 import { useToast } from "@/components/ui/toast"
@@ -46,9 +45,8 @@ export function KioskWorkspace() {
   const [frame, setFrame] = React.useState<SemanticFrame | null>(null)
   const [activeVideoName, setActiveVideoName] = React.useState<string | null>(null)
   const [activeTicket, setActiveTicket] = React.useState<string | null>(null)
-  const [isEditOpen, setIsEditOpen] = React.useState(false)
 
-  // Người dùng chủ động mở bảng 5 phương án dự phòng (khi không thuộc ký hiệu hoặc muốn bổ sung)
+  // Người dùng chủ động mở bảng chạm trực quan Zero-Typing (khi không thuộc ký hiệu hoặc muốn chọn lại)
   const [forceShowFallback, setForceShowFallback] = React.useState(false)
 
   React.useEffect(() => {
@@ -112,9 +110,9 @@ export function KioskWorkspace() {
       needs_human_review: true,
       review_reasons: [msg],
       summary_for_clinician:
-        "Phương thức 1 không nhận diện được ký hiệu. Bệnh nhân đang sử dụng 5 phương án dự phòng (Sơ đồ cơ thể / Câu giao tiếp sẵn / Nhập chữ TTS).",
+        "Phương thức 1 không nhận diện được ký hiệu. Bệnh nhân đang sử dụng Bảng chạm trực quan Zero-Typing (Sơ đồ cơ thể / Biểu tượng triệu chứng / Câu chạm sẵn).",
       patient_confirmation_text:
-        "Hệ thống chưa nhận diện được ký hiệu vừa rồi. Vui lòng chọn 1 trong 5 phương án dự phòng bên dưới.",
+        "Hệ thống chưa nhận diện được ký hiệu vừa rồi. Vui lòng chạm chọn trên bảng trực quan bên dưới (không cần gõ chữ).",
       suggested_action: "Sử dụng Sơ đồ cơ thể, Câu giao tiếp có sẵn, Nhập chữ hoặc Gọi nhân viên hỗ trợ",
       doctor_quick_responses: [
         "Mời bạn chỉ vào vị trí đau trên sơ đồ cơ thể",
@@ -231,7 +229,6 @@ export function KioskWorkspace() {
           setTranslation(newText)
           setConfidence(1.0)
           setFrame(parsed)
-          setIsEditOpen(false)
           setForceShowFallback(false) // Trở về màn hình xác nhận sẵn sàng gửi
           pushToast({
             title: "Đã áp dụng nội dung dự phòng thành công",
@@ -400,20 +397,20 @@ export function KioskWorkspace() {
                     onClick={() => setForceShowFallback(true)}
                     className="cursor-pointer font-semibold text-primary underline underline-offset-4 hover:text-primary/80"
                   >
-                    Gặp khó khăn? Mở 5 Phương Án Dự Phòng ➔
+                    Không thuộc ký hiệu? Mở Bảng Chạm Trực Quan ➔
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Cột phải: Kết quả nhận diện HOẶC 5 Phương Án Dự Phòng */}
+            {/* Cột phải: Kết quả nhận diện HOẶC Bảng Chạm Trực Quan Zero-Typing */}
             <div className="flex flex-col gap-4 lg:col-span-5">
-              {/* NẾU PHƯƠNG THỨC 1 KHÔNG ĐƯỢC ➔ HIỂN THỊ 5 PHƯƠNG ÁN DỰ PHÒNG TẠI ĐÂY */}
+              {/* NẾU PHƯƠNG THỨC 1 KHÔNG ĐƯỢC ➔ HIỂN THỊ BẢNG CHẠM ZERO-TYPING TẠI ĐÂY */}
               {showFallbackOptions ? (
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-warning">
-                      ⚠️ Kích hoạt 5 Phương Án Dự Phòng
+                      Chế Độ Chạm Trực Quan (Không Cần Gõ Chữ)
                     </span>
                     <button
                       type="button"
@@ -449,7 +446,6 @@ export function KioskWorkspace() {
                     glosses={glosses}
                     translation={translation}
                     confidence={confidence}
-                    frame={frame}
                     isPending={
                       parseMutation.isPending ||
                       recognizeMutation.isPending ||
@@ -468,7 +464,7 @@ export function KioskWorkspace() {
                       activeTicket={activeTicket}
                       doctorReply={doctorReply}
                       onConfirm={handleConfirm}
-                      onOpenEdit={() => setIsEditOpen(true)}
+                      onOpenEdit={() => setForceShowFallback(true)}
                       onRequestHumanHelp={handleRequestHumanHelp}
                       onAcknowledge={handleAcknowledge}
                       isAcking={ackMutation.isPending}
@@ -511,14 +507,6 @@ export function KioskWorkspace() {
           onResetKiosk={handleResetKiosk}
         />
       )}
-
-      <EditTranslationDialog
-        open={isEditOpen}
-        onOpenChange={setIsEditOpen}
-        initialText={translation}
-        isSaving={parseMutation.isPending}
-        onSave={(txt) => handleApplyFallbackText(txt, "CHỈNH-SỬA-TAY")}
-      />
     </div>
   )
 }

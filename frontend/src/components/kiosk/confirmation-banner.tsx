@@ -209,7 +209,7 @@ export function ConfirmationBanner({
               onClick={onOpenEdit}
             >
               <Edit3 />
-              Sửa Lại
+              Chọn Lại
             </Button>
           </div>
 

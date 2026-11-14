@@ -60,25 +60,13 @@ SEVERITY_MAP = {
 }
 
 
-def parse_semantic_frame(
-    gloss_sequence: Optional[List[str]] = None,
-    translation: Optional[str] = None,
-    dialogue_history: Optional[List[Dict[str, Any]]] = None,
+def _build_offline_semantic_frame(
+    latest_raw: str,
+    matched_nodes: List[Dict[str, Any]],
+    slots: Dict[str, Optional[str]],
+    emergency_hit: Optional[Dict[str, Any]],
 ) -> SemanticFrame:
-    """
-    Phân tích chuỗi Gloss / câu dịch tiếng Việt (và lịch sử hội thoại đa lượt nếu có)
-    dựa trên Kho tri thức `triage_kb.json`.
-    """
-    latest_raw, combined_upper, combined_tokens = triage_kb.collect_patient_context(
-        gloss_sequence=gloss_sequence,
-        translation=translation,
-        dialogue_history=dialogue_history,
-    )
-    slots = triage_kb.extract_slots(combined_upper, combined_tokens)
-    matched_nodes = triage_kb.retrieve_nodes(combined_upper, combined_tokens, top_k=4)
-
-    # 1. Kiểm tra dấu hiệu cấp cứu toàn cục và cạnh red_flags của triệu chứng khớp được
-    emergency_hit = triage_kb.check_emergency(matched_nodes, combined_upper, combined_tokens)
+    """Xây dựng SemanticFrame thuần từ Kho tri thức + Rule (Offline Fallback <1ms)."""
     if emergency_hit:
         return SemanticFrame(
             intent=IntentType.EMERGENCY,
@@ -98,7 +86,6 @@ def parse_semantic_frame(
             doctor_quick_responses=emergency_hit["responses"],
         )
 
-    # 2. Chọn node chính từ kết quả truy xuất KB
     if not matched_nodes:
         reg = triage_kb.get_default_registration_node()
         return SemanticFrame(
@@ -123,7 +110,6 @@ def parse_semantic_frame(
     intent = IntentType(primary["intent"])
     specialty = primary["specialty"]
 
-    # 3. Các nhóm tác vụ không phải triệu chứng bệnh lý (Hợp tác khám / Cận lâm sàng / Hỏi đáp / Đăng ký)
     if intent in {
         IntentType.EXAM_COOPERATION,
         IntentType.LAB_DIAGNOSTIC,
@@ -162,7 +148,6 @@ def parse_semantic_frame(
             doctor_quick_responses=primary.get("default_responses", []),
         )
 
-    # 4. Nhóm triệu chứng bệnh lý / chuyên khoa: tổng hợp triệu chứng và gợi ý câu hỏi theo slot còn thiếu
     specific_nodes = [
         n for n in matched_nodes
         if n.get("intent") in {"symptom_report", "specialty_ent_dental", "specialty_other"}
@@ -209,6 +194,32 @@ def parse_semantic_frame(
         patient_confirmation_text=f"Ý của bạn là: '{latest_raw}' — Có đúng không?",
         suggested_action=primary["suggested_action"],
         doctor_quick_responses=smart_follow_ups or primary.get("default_responses", []),
+    )
+
+
+def parse_semantic_frame(
+    gloss_sequence: Optional[List[str]] = None,
+    translation: Optional[str] = None,
+    dialogue_history: Optional[List[Dict[str, Any]]] = None,
+) -> SemanticFrame:
+    """
+    Phân tích chuỗi Gloss / câu khai báo từ Kiosk Zero-Typing và lịch sử hội thoại đa lượt
+    bằng Kho tri thức `triage_kb.json` + Slot-Filling (<1ms offline, không phụ thuộc mạng).
+    """
+    latest_raw, combined_upper, combined_tokens = triage_kb.collect_patient_context(
+        gloss_sequence=gloss_sequence,
+        translation=translation,
+        dialogue_history=dialogue_history,
+    )
+    slots = triage_kb.extract_slots(combined_upper, combined_tokens)
+    matched_nodes = triage_kb.retrieve_nodes(combined_upper, combined_tokens, top_k=4)
+    emergency_hit = triage_kb.check_emergency(matched_nodes, combined_upper, combined_tokens)
+
+    return _build_offline_semantic_frame(
+        latest_raw=latest_raw,
+        matched_nodes=matched_nodes,
+        slots=slots,
+        emergency_hit=emergency_hit,
     )
 
 

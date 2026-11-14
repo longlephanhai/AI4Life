@@ -52,6 +52,23 @@ def _match_trigger(trigger: str, text_upper: str, tokens: List[str]) -> bool:
     return False
 
 
+_NEGATION_PREFIX = r"(?:KHÔNG|CHƯA|HẾT|ĐỠ|KHÔNG\s+BỊ|KHÔNG\s+CÓ|CHƯA\s+TỪNG|KHÔNG\s+CÒN|HẾT\s+HẲN)"
+
+
+def _match_non_negated_trigger(trigger: str, text_upper: str, tokens: List[str]) -> bool:
+    """Khớp trigger nhưng bỏ qua nếu ngay trước cụm từ đó là từ phủ định (VD: 'không khó thở', 'hết đau ngực')."""
+    if not _match_trigger(trigger, text_upper, tokens):
+        return False
+    trg_space = trigger.upper().strip().replace("-", " ")
+    neg_pattern = rf"(?:^|\s){_NEGATION_PREFIX}\s+(?:BỊ\s+|CÓ\s+|CẢM\s+THẤY\s+)?{re.escape(trg_space)}(?:$|\s)"
+    stripped = re.sub(neg_pattern, " ", text_upper)
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    if stripped != text_upper:
+        filtered_tokens = [t for t in tokens if t != trigger.upper().strip()]
+        return _match_trigger(trigger, stripped, filtered_tokens)
+    return True
+
+
 class TriageKnowledgeBase:
     """Quản lý truy xuất node tri thức phân luồng và trích xuất slot hội thoại."""
 
@@ -118,20 +135,21 @@ class TriageKnowledgeBase:
             "medication_status": "unknown",
         }
 
+        # Ưu tiên bắt động mọi mốc thời gian dạng số bất kỳ trước (VD: "5 ngày", "2 tuần", "4 tháng")
+        m_onset = re.search(
+            r"\b(\d+(?:[.,]\d+)?)[-\s]*(NGÀY|TUẦN|THÁNG|GIỜ|NĂM)\b",
+            text_upper,
+        )
+        if m_onset:
+            slots["onset"] = f"khoảng {m_onset.group(1)} {m_onset.group(2).lower()} trước"
+
         for slot_key in ("onset", "severity", "body_location"):
+            if slots[slot_key]:
+                continue
             for rule in self.slot_patterns.get(slot_key, []):
                 if any(_match_trigger(t, text_upper, tokens) for t in rule.get("triggers", [])):
                     slots[slot_key] = rule.get("value")
                     break
-
-        # Bắt động mọi mốc thời gian dạng số bất kỳ (VD: "5 ngày", "2 tuần", "4 tháng")
-        if not slots["onset"]:
-            m_onset = re.search(
-                r"\b(\d+(?:[.,]\d+)?)[-\s]*(NGÀY|TUẦN|THÁNG|GIỜ|NĂM)\b",
-                text_upper,
-            )
-            if m_onset:
-                slots["onset"] = f"khoảng {m_onset.group(1)} {m_onset.group(2).lower()} trước"
 
         for rule in self.slot_patterns.get("allergy", []):
             if any(_match_trigger(t, text_upper, tokens) for t in rule.get("triggers", [])):
@@ -174,14 +192,19 @@ class TriageKnowledgeBase:
             matched_triggers: List[str] = []
             gloss_hits = 0
             text_hits = 0
+            matcher = (
+                _match_non_negated_trigger
+                if node.get("intent") == "emergency"
+                else _match_trigger
+            )
 
             for g in node.get("gloss_triggers", []):
-                if _match_trigger(g, retrieval_text, retrieval_tokens):
+                if matcher(g, retrieval_text, retrieval_tokens):
                     gloss_hits += 1
                     matched_triggers.append(g)
 
             for kw in node.get("text_keywords", []):
-                if _match_trigger(kw, retrieval_text, retrieval_tokens):
+                if matcher(kw, retrieval_text, retrieval_tokens):
                     text_hits += 1
                     if kw not in matched_triggers:
                         matched_triggers.append(kw)
@@ -213,7 +236,7 @@ class TriageKnowledgeBase:
         tokens: List[str],
     ) -> Optional[Dict[str, Any]]:
         """Kiểm tra cờ đỏ toàn cục và cạnh red_flags trên các node triệu chứng vừa khớp."""
-        if any(_match_trigger(t, text_upper, tokens) for t in self.emergency_triggers):
+        if any(_match_non_negated_trigger(t, text_upper, tokens) for t in self.emergency_triggers):
             emg_node = next((n for n in self.nodes if n.get("id") == "emergency_critical"), None)
             if emg_node:
                 return {
@@ -227,7 +250,7 @@ class TriageKnowledgeBase:
             rf = node.get("red_flags")
             if not rf:
                 continue
-            if any(_match_trigger(t, text_upper, tokens) for t in rf.get("triggers", [])):
+            if any(_match_non_negated_trigger(t, text_upper, tokens) for t in rf.get("triggers", [])):
                 emg_node = next((n for n in self.nodes if n.get("id") == "emergency_critical"), None)
                 return {
                     "specialty": rf.get("escalate_to") or "Khoa Cấp cứu (Hồi sức cấp cứu)",
@@ -310,6 +333,46 @@ class TriageKnowledgeBase:
             ],
             "suggested_action": "Xác nhận thông tin hành chính, cấp số thứ tự và hướng dẫn bàn tiếp nhận.",
         }
+
+    def get_node_by_id(self, node_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not node_id:
+            return None
+        return next((n for n in self.nodes if n.get("id") == node_id), None)
+
+    def format_rag_context(self, matched_nodes: List[Dict[str, Any]]) -> str:
+        """
+        Đóng gói ngữ cảnh tri thức từ `triage_kb.json` cho tầng RAG + Gemini (Bước 3):
+        gồm chi tiết Top node khớp sơ bộ và danh mục rút gọn toàn bộ 18 node để LLM
+        vẫn phân loại đúng khi bệnh nhân diễn đạt đồng nghĩa hoặc ngoài từ khóa.
+        """
+        matched_ids = {n.get("id") for n in matched_nodes}
+        top_lines: List[str] = []
+        for node in matched_nodes:
+            rf = node.get("red_flags") or {}
+            rf_note = f" | RedFlags: {', '.join(rf.get('triggers', [])[:6])}" if rf else ""
+            req_slots = ", ".join(node.get("required_slots", [])) or "không"
+            top_lines.append(
+                f"- [{node.get('id')}] ({node.get('intent')}) Khoa: {node.get('specialty')} | "
+                f"Triệu chứng/Chủ đề: {node.get('title')} | Cần hỏi: [{req_slots}]"
+                f"{rf_note} | Hướng dẫn: {node.get('clinical_guideline', '')}"
+            )
+
+        catalog_lines: List[str] = []
+        for node in self.nodes:
+            nid = node.get("id")
+            if nid in matched_ids:
+                continue
+            syms = ", ".join(node.get("symptoms", []))
+            catalog_lines.append(
+                f"- [{nid}] ({node.get('intent')}) Khoa: {node.get('specialty')} | "
+                f"{node.get('title')}{f' ({syms})' if syms else ''}"
+            )
+
+        sections = []
+        if top_lines:
+            sections.append("TOP NODE TRI THỨC KHỚP SƠ BỘ:\n" + "\n".join(top_lines))
+        sections.append("DANH MỤC NODE TRI THỨC KHÁC TRONG BỆNH VIỆN:\n" + "\n".join(catalog_lines))
+        return "\n\n".join(sections)
 
 
 triage_kb = TriageKnowledgeBase()

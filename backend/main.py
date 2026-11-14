@@ -19,6 +19,7 @@ from schemas import SemanticFrame, ParseRequest, RecognizeResponse, RecognitionS
 from semantic_parser import parse_semantic_frame
 from ai_engine import ai_engine
 from vsl_synthesizer import vsl_synthesizer
+from patient_reply_helper import suggest_patient_quick_replies
 import gemini_client
 
 app = FastAPI(
@@ -403,6 +404,7 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
         vsl_plan = vsl_synthesizer.preview_gloss_plan(req.message)
 
     matched_sample_id = vsl_plan["matched_sample_id"] or (_match_vsl_sample_id(req.message) if req.send_vsl else None)
+    patient_quick_replies = suggest_patient_quick_replies(req.message)
     reply_payload = {
         "ticket_number": ticket_number,
         "message": req.message,
@@ -412,6 +414,7 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
         "vsl_mode": vsl_plan["mode"],
         "vsl_glosses": vsl_plan["vsl_glosses"],
         "missing_terms": vsl_plan["missing_terms"],
+        "patient_quick_replies": patient_quick_replies,
         "send_vsl": req.send_vsl,
         "replied_at": replied_at,
         "patient_ack": None
@@ -431,6 +434,7 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
                 "vsl_mode": vsl_plan["mode"],
                 "vsl_glosses": vsl_plan["vsl_glosses"],
                 "missing_terms": vsl_plan["missing_terms"],
+                "patient_quick_replies": patient_quick_replies,
                 "send_vsl": req.send_vsl,
                 "timestamp": replied_at,
             })

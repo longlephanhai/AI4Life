@@ -1,14 +1,13 @@
-import { AlertTriangle, CheckCircle2, ShieldAlert, Stethoscope } from "lucide-react"
+import { CheckCircle2, ShieldAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
-import type { RecognitionStatus, SemanticFrame } from "@/lib/types"
+import type { RecognitionStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 interface RecognitionPanelProps {
   glosses: string[]
   translation: string
   confidence: number
-  frame: SemanticFrame | null
   isPending: boolean
   isRecognized?: boolean
   recognitionStatus?: RecognitionStatus
@@ -19,21 +18,17 @@ export function RecognitionPanel({
   glosses,
   translation,
   confidence,
-  frame,
   isPending,
   isRecognized = true,
   fallbackMessage,
 }: RecognitionPanelProps) {
   const hasResult = Boolean(translation) || !isRecognized
-  const isEmergency = frame?.intent === "emergency"
-  const needsReview = frame?.needs_human_review || !isRecognized
 
   return (
     <Card
       aria-live="polite"
       className={cn(
         "flex flex-col gap-4 p-6",
-        isEmergency && "border-destructive ring-2 ring-destructive/20",
         !isRecognized && "border-warning ring-2 ring-warning/20",
       )}
     >
@@ -42,13 +37,11 @@ export function RecognitionPanel({
           <span
             className={cn(
               "size-2.5 rounded-full",
-              isEmergency
-                ? "animate-ping bg-destructive"
-                : !isRecognized
-                  ? "bg-warning"
-                  : hasResult
-                    ? "bg-primary"
-                    : "bg-muted-foreground/40",
+              !isRecognized
+                ? "bg-warning"
+                : hasResult
+                  ? "bg-primary"
+                  : "bg-muted-foreground/40",
             )}
           />
           <h2 className="text-lg font-semibold">Kết Quả Phiên Dịch Ngôn Ngữ Ký Hiệu</h2>
@@ -96,13 +89,11 @@ export function RecognitionPanel({
         <div
           className={cn(
             "flex min-h-20 items-center rounded-xl border px-4 py-3.5",
-            isEmergency
-              ? "border-destructive/40 bg-destructive/10 text-destructive"
-              : !isRecognized
-                ? "border-warning/50 bg-warning/10 text-foreground"
-                : hasResult
-                  ? "border-primary/25 bg-accent/40 text-foreground"
-                  : "border-border bg-muted/20 text-muted-foreground",
+            !isRecognized
+              ? "border-warning/50 bg-warning/10 text-foreground"
+              : hasResult
+                ? "border-primary/25 bg-accent/40 text-foreground"
+                : "border-border bg-muted/20 text-muted-foreground",
           )}
         >
           {!isRecognized ? (
@@ -118,58 +109,6 @@ export function RecognitionPanel({
               Chưa có kết quả. Hãy bật Camera ra ký hiệu hoặc tải video MP4 lên để nhận diện.
             </p>
           )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="flex items-start gap-2.5 rounded-xl border bg-muted/30 p-3.5">
-          <Stethoscope className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-          <div className="space-y-0.5">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Chuyên Khoa Đề Xuất
-            </p>
-            <p className="text-sm font-semibold">
-              {hasResult ? (frame?.specialty ?? "Quầy Tiếp Đón Chung") : "Chờ phân luồng"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-start gap-2.5 rounded-xl border bg-muted/30 p-3.5">
-          <AlertTriangle
-            className={cn(
-              "mt-0.5 size-4 shrink-0",
-              !hasResult
-                ? "text-muted-foreground"
-                : isEmergency
-                  ? "text-destructive"
-                  : needsReview
-                    ? "text-warning-foreground"
-                    : "text-success",
-            )}
-            aria-hidden
-          />
-          <div className="space-y-0.5">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Phân Loại Ưu Tiên
-            </p>
-            <p
-              className={cn(
-                "text-sm font-semibold",
-                !hasResult && "text-muted-foreground",
-                hasResult && isEmergency && "text-destructive",
-                hasResult && !isEmergency && needsReview && "text-warning-foreground",
-                hasResult && !isEmergency && !needsReview && "text-success",
-              )}
-            >
-              {!hasResult
-                ? "Chờ nhận diện"
-                : isEmergency
-                  ? "CẤP CỨU ĐỎ (Ưu tiên tuyệt đối)"
-                  : needsReview
-                    ? "Cần hỏi thêm thông tin"
-                    : "Tiếp nhận tiêu chuẩn"}
-            </p>
-          </div>
         </div>
       </div>
     </Card>
