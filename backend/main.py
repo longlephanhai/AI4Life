@@ -497,12 +497,22 @@ def api_patient_message(ticket_number: str, req: PatientMessageRequest):
                 "timestamp": sent_at,
             }
             msgs.append(msg_item)
+            updated_frame = parse_semantic_frame(
+                gloss_sequence=req.gloss_sequence,
+                translation=req.text,
+                dialogue_history=msgs,
+            )
+            c["semantic_frame"] = (
+                updated_frame.model_dump()
+                if hasattr(updated_frame, "model_dump")
+                else updated_frame.dict()
+            )
             ack_data = {"action": "understood", "note": req.text, "acked_at": sent_at}
             if c.get("doctor_reply"):
                 c["doctor_reply"]["patient_ack"] = ack_data
             if ticket_number in DOCTOR_REPLIES:
                 DOCTOR_REPLIES[ticket_number]["patient_ack"] = ack_data
-            return {"success": True, "message": msg_item}
+            return {"success": True, "message": msg_item, "semantic_frame": c["semantic_frame"]}
     raise HTTPException(status_code=404, detail=f"Không tìm thấy phiếu {ticket_number}")
 
 

@@ -1,0 +1,635 @@
+{
+  "version": "1.0",
+  "description": "Kho tri thức phân luồng tiếp nhận y tế SignBridge AI (Graph-structured RAG Knowledge Base)",
+  "emergency_global_triggers": [
+    "KHÓ-THỞ",
+    "THỞ-KHÓ",
+    "NGỰC-ĐAU",
+    "ĐAU-NGỰC",
+    "BẤT-TỈNH",
+    "CHẢY-MÁU",
+    "CẤP-CỨU",
+    "TIM-ĐẬP-NHANH",
+    "CO-GIẬT",
+    "NÔN-MÁU",
+    "KHÓ THỞ",
+    "TỨC NGỰC",
+    "ĐAU NGỰC",
+    "NÔN RA MÁU",
+    "CHẢY MÁU NHIỀU",
+    "NGẤT XỈU",
+    "CO GIẬT"
+  ],
+  "slot_patterns": {
+    "onset": [
+      {"triggers": ["HÔM-QUA", "HÔM QUA"], "value": "hôm qua (~24h trước)"},
+      {"triggers": ["HÔM-NAY", "HÔM NAY"], "value": "hôm nay (trong ngày)"},
+      {"triggers": ["SÁNG-NAY", "SÁNG NAY"], "value": "sáng nay"},
+      {"triggers": ["TỐI-QUA", "ĐÊM-QUA", "TỐI QUA", "ĐÊM QUA"], "value": "tối/đêm qua"},
+      {"triggers": ["GẦN-ĐÂY", "VÀI NGÀY", "GẦN ĐÂY"], "value": "vài ngày gần đây"},
+      {"triggers": ["1-NGÀY", "1 NGÀY", "MỘT NGÀY"], "value": "khoảng 1 ngày trước"},
+      {"triggers": ["2-NGÀY", "2 NGÀY", "HAI NGÀY"], "value": "khoảng 2 ngày trước"},
+      {"triggers": ["3-NGÀY", "3 NGÀY", "BA NGÀY"], "value": "khoảng 3 ngày trước"},
+      {"triggers": ["TUẦN-TRƯỚC", "1 TUẦN", "MỘT TUẦN", "TUẦN TRƯỚC"], "value": "khoảng 1 tuần trước"},
+      {"triggers": ["1 THÁNG", "NHIỀU THÁNG", "LÂU RỒI"], "value": "kéo dài nhiều tuần / lâu ngày"},
+      {"triggers": ["LẦN-ĐẦU", "MỚI BỊ", "LẦN ĐẦU"], "value": "lần đầu tiên xuất hiện"}
+    ],
+    "severity": [
+      {"triggers": ["DỮ-DỘI", "DỮ DỘI", "QUẶN", "KHÔNG CHỊU ĐƯỢC"], "value": "Dữ dội / Rất nặng"},
+      {"triggers": ["NẶNG", "RẤT ĐAU", "NHIỀU LẮM"], "value": "Nặng / Nhiều"},
+      {"triggers": ["NGỨA-NHIỀU"], "value": "Ngứa nhiều, khó chịu"},
+      {"triggers": ["NHIỀU"], "value": "Nhiều / Nặng"},
+      {"triggers": ["VỪA", "BÌNH-THƯỜNG", "TRUNG BÌNH"], "value": "Mức độ vừa phải"},
+      {"triggers": ["ÂM-Ỉ", "ÂM Ỉ", "LÂM RÂM"], "value": "Âm ỉ / Nhẹ"},
+      {"triggers": ["ÍT", "NHẸ", "HƠI HƠI"], "value": "Nhẹ / Ít"}
+    ],
+    "body_location": [
+      {"triggers": ["ĐẦU", "THÁI DƯƠNG", "TRÁN", "ĐỈNH ĐẦU"], "value": "Vùng đầu"},
+      {"triggers": ["HỌNG", "CỔ HỌNG", "AMIDAN"], "value": "Vùng họng"},
+      {"triggers": ["RĂNG", "LỢI", "HÀM"], "value": "Vùng răng - hàm"},
+      {"triggers": ["TAI", "TAI TRÁI", "TAI PHẢI"], "value": "Vùng tai"},
+      {"triggers": ["MŨI", "XOANG"], "value": "Vùng mũi - xoang"},
+      {"triggers": ["MẮT", "MẮT-TRÁI", "MẮT PHẢI"], "value": "Vùng mắt"},
+      {"triggers": ["NGỰC", "LỒNG NGỰC", "TIM"], "value": "Vùng ngực"},
+      {"triggers": ["THƯỢNG VỊ", "TRÊN RỐN"], "value": "Vùng bụng trên (thượng vị)"},
+      {"triggers": ["HỐ CHẬU PHẢI", "BỤNG PHẢI", "BÊN PHẢI"], "value": "Vùng bụng phải"},
+      {"triggers": ["BỤNG TRÁI", "BÊN TRÁI"], "value": "Vùng bụng trái"},
+      {"triggers": ["DƯỚI RỐN", "BỤNG DƯỚI"], "value": "Vùng bụng dưới"},
+      {"triggers": ["BỤNG", "DẠ DÀY", "ĐAU-BỤNG", "BỤNG-ĐAU"], "value": "Vùng bụng"},
+      {"triggers": ["LƯNG", "THẮT LƯNG", "CỘT SỐNG"], "value": "Vùng lưng / cột sống"},
+      {"triggers": ["KHỚP-GỐI", "GỐI", "ĐẦU GỐI"], "value": "Khớp gối"},
+      {"triggers": ["TAY", "CÁNH TAY", "BÀN TAY", "TÊ-TAY"], "value": "Vùng tay"},
+      {"triggers": ["CHÂN", "BÀN CHÂN", "CỔ CHÂN"], "value": "Vùng chân"},
+      {"triggers": ["DA", "NGOÀI DA"], "value": "Vùng da"}
+    ],
+    "allergy": [
+      {"triggers": ["KHÔNG DỊ ỨNG", "CHƯA TỪNG DỊ ỨNG", "KHÔNG BỊ DỊ ỨNG"], "status": "confirmed_none"},
+      {"triggers": ["CÓ DỊ ỨNG", "BỊ DỊ ỨNG THUỐC", "DỊ ỨNG KHÁNG SINH", "DỊ ỨNG PENICILLIN"], "status": "confirmed_yes"}
+    ],
+    "medication": [
+      {"triggers": ["CHƯA UỐNG THUỐC", "KHÔNG UỐNG THUỐC", "CHƯA DÙNG THUỐC"], "status": "confirmed_none"},
+      {"triggers": ["ĐÃ UỐNG THUỐC", "ĐANG UỐNG THUỐC", "CÓ UỐNG THUỐC", "UỐNG GIẢM ĐAU"], "status": "confirmed_active"}
+    ]
+  },
+  "nodes": [
+    {
+      "id": "emergency_critical",
+      "intent": "emergency",
+      "priority": 100,
+      "title": "Dấu hiệu cấp cứu nguy kịch",
+      "specialty": "Khoa Cấp cứu (Hồi sức cấp cứu)",
+      "gloss_triggers": ["KHÓ-THỞ", "THỞ-KHÓ", "NGỰC-ĐAU", "ĐAU-NGỰC", "BẤT-TỈNH", "CHẢY-MÁU", "CẤP-CỨU", "TIM-ĐẬP-NHANH", "CO-GIẬT", "NÔN-MÁU"],
+      "text_keywords": ["khó thở", "tức ngực", "đau ngực", "bất tỉnh", "ngất", "chảy máu nhiều", "cấp cứu", "tim đập nhanh", "co giật", "nôn ra máu"],
+      "symptoms": ["Khó thở / Đau ngực cấp / Chảy máu nhiều / Nguy cơ suy hô hấp"],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Y tá đang đến hỗ trợ bạn ngay",
+        "Hãy ngồi yên và thở đều",
+        "Bác sĩ đang có mặt"
+      ],
+      "suggested_action": "Kích hoạt cảnh báo cấp cứu. Điều dưỡng mang bình oxy và máy đo SpO2 đến tiếp nhận ngay.",
+      "clinical_guideline": "Ưu tiên ABC (đường thở, hô hấp, tuần hoàn) và chuyển ngay buồng cấp cứu."
+    },
+    {
+      "id": "coop_mouth",
+      "intent": "exam_cooperation",
+      "priority": 90,
+      "title": "Hợp tác khám: Há miệng kiểm tra vòm họng / răng miệng",
+      "specialty": "Phòng khám lâm sàng (Bác sĩ chuyên khoa)",
+      "gloss_triggers": ["MIỆNG-HÁ", "HÁ-MIỆNG"],
+      "text_keywords": ["há miệng", "mở miệng"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Đúng, mời bạn há miệng ra",
+        "Chưa cần, ngậm miệng lại",
+        "Nói 'A' to lên"
+      ],
+      "suggested_action": "Bác sĩ xác nhận hướng dẫn thao tác há miệng cho người bệnh.",
+      "clinical_guideline": "Phối hợp khám họng và răng miệng."
+    },
+    {
+      "id": "coop_coat",
+      "intent": "exam_cooperation",
+      "priority": 90,
+      "title": "Hợp tác khám: Cởi áo khoác ngoài để thăm khám / đo điện tim",
+      "specialty": "Phòng khám lâm sàng (Bác sĩ chuyên khoa)",
+      "gloss_triggers": ["ÁO-KHOÁC", "CỞI-ÁO", "CỞI-ÁO-KHOÁC"],
+      "text_keywords": ["áo khoác", "cởi áo"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Đúng, hãy cởi áo khoác ngoài",
+        "Không cần cởi áo",
+        "Mời vén áo lên"
+      ],
+      "suggested_action": "Bác sĩ hướng dẫn thao tác cởi/vén áo để nghe tim phổi hoặc đo điện tim.",
+      "clinical_guideline": "Đảm bảo riêng tư và thao tác thuận tiện khi thăm khám."
+    },
+    {
+      "id": "coop_glasses",
+      "intent": "exam_cooperation",
+      "priority": 90,
+      "title": "Hợp tác khám: Bỏ kính mắt để kiểm tra thị lực / chụp phim",
+      "specialty": "Phòng khám lâm sàng (Bác sĩ chuyên khoa)",
+      "gloss_triggers": ["KÍNH", "BỎ-KÍNH", "THÁO-KÍNH"],
+      "text_keywords": ["bỏ kính", "tháo kính", "đeo kính"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Đúng, hãy tháo kính ra",
+        "Đeo kính vào để kiểm tra",
+        "Nhìn thẳng vào bảng chữ"
+      ],
+      "suggested_action": "Hướng dẫn người bệnh tháo hoặc đeo kính đúng lúc đo mắt / chụp phim.",
+      "clinical_guideline": "Chuẩn hóa quy trình đo khúc xạ và chẩn đoán hình ảnh vùng đầu mặt."
+    },
+    {
+      "id": "coop_metal",
+      "intent": "exam_cooperation",
+      "priority": 90,
+      "title": "Hợp tác khám: Tháo bỏ trang sức / đồ kim loại trước khi chụp phim",
+      "specialty": "Phòng khám lâm sàng (Bác sĩ chuyên khoa)",
+      "gloss_triggers": ["KIM-LOẠI"],
+      "text_keywords": ["kim loại", "đồ kim loại", "trang sức", "dây chuyền", "đồng hồ"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Đúng, hãy tháo hết đồ kim loại",
+        "Không có đồ kim loại, mời vào"
+      ],
+      "suggested_action": "Nhắc người bệnh tháo hết trang sức, vật kim loại trước khi vào phòng X-quang/MRI.",
+      "clinical_guideline": "An toàn phòng chụp chẩn đoán hình ảnh."
+    },
+    {
+      "id": "coop_breath",
+      "intent": "exam_cooperation",
+      "priority": 90,
+      "title": "Hợp tác khám: Thao tác nhịp thở theo hiệu lệnh của bác sĩ",
+      "specialty": "Phòng khám lâm sàng (Bác sĩ chuyên khoa)",
+      "gloss_triggers": ["HÍT-THỞ", "THỞ-SÂU", "NÍM-THỞ", "NÍN-THỞ"],
+      "text_keywords": ["hít sâu", "nín thở", "hít thở", "thở đều"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Hít sâu vào... nín thở",
+        "Thở đều bình thường ra"
+      ],
+      "suggested_action": "Hiển thị hướng dẫn nhịp thở trực quan khi nghe phổi hoặc chụp X-quang.",
+      "clinical_guideline": "Phối hợp nhịp thở trong khám hô hấp và chụp phim phổi."
+    },
+    {
+      "id": "coop_posture",
+      "intent": "exam_cooperation",
+      "priority": 90,
+      "title": "Hợp tác khám: Thay đổi tư thế khám (nằm / ngồi / cởi giày)",
+      "specialty": "Phòng khám lâm sàng (Bác sĩ chuyên khoa)",
+      "gloss_triggers": ["NẰM", "NGỒI"],
+      "text_keywords": ["nằm xuống", "ngồi xuống", "cởi giày", "lên giường"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Mời bạn nằm lên giường khám",
+        "Mời bạn ngồi thẳng lưng",
+        "Mời cởi giày ra"
+      ],
+      "suggested_action": "Hướng dẫn tư thế khám phù hợp.",
+      "clinical_guideline": "Chuẩn bị tư thế trước thăm khám thực thể."
+    },
+    {
+      "id": "lab_echocardiogram",
+      "intent": "lab_diagnostic",
+      "priority": 80,
+      "title": "Siêu âm tim màu",
+      "specialty": "Khoa Thăm dò chức năng (Phòng Siêu âm tim)",
+      "gloss_triggers": ["SIÊU-ÂM"],
+      "text_keywords": ["siêu âm tim"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Mời sang Phòng Siêu âm Tim (P.204)",
+        "Mời ngồi chờ gọi tên vào siêu âm"
+      ],
+      "suggested_action": "Xuất phiếu chỉ dẫn và điều hướng sang Phòng Siêu âm tim.",
+      "clinical_guideline": "Thực hiện cận lâm sàng tim mạch."
+    },
+    {
+      "id": "lab_ultrasound",
+      "intent": "lab_diagnostic",
+      "priority": 79,
+      "title": "Siêu âm ổ bụng tổng quát",
+      "specialty": "Khoa Chẩn đoán hình ảnh (Phòng Siêu âm)",
+      "gloss_triggers": ["SIÊU-ÂM"],
+      "text_keywords": ["siêu âm bụng", "siêu âm"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Mời sang Phòng Siêu âm (P.201)",
+        "Bạn đã nhịn tiểu / nhịn ăn chưa?"
+      ],
+      "suggested_action": "Kiểm tra điều kiện nhịn ăn/nhịn tiểu và hướng dẫn sang Phòng Siêu âm.",
+      "clinical_guideline": "Siêu âm bụng cần kiểm tra trạng thái nhịn ăn hoặc căng bàng quang tùy chỉ định."
+    },
+    {
+      "id": "lab_xray",
+      "intent": "lab_diagnostic",
+      "priority": 80,
+      "title": "Chụp X-quang kỹ thuật số",
+      "specialty": "Khoa Chẩn đoán hình ảnh (Phòng Chụp X-quang)",
+      "gloss_triggers": ["X-QUANG", "XQUANG"],
+      "text_keywords": ["x-quang", "xquang", "chụp phim", "chụp phổi"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Mời sang Phòng Chụp X-quang (P.105)",
+        "Tháo đồ kim loại trước khi vào"
+      ],
+      "suggested_action": "Nhắc tháo đồ kim loại và điều hướng sang Phòng Chụp X-quang.",
+      "clinical_guideline": "An toàn tia X và loại bỏ dị vật kim loại."
+    },
+    {
+      "id": "lab_blood_urine",
+      "intent": "lab_diagnostic",
+      "priority": 80,
+      "title": "Xét nghiệm huyết học / Sinh hóa máu",
+      "specialty": "Khoa Xét nghiệm",
+      "gloss_triggers": ["XÉT-NGHIỆM"],
+      "text_keywords": ["xét nghiệm", "thử máu", "lấy máu", "nước tiểu"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Mời sang Phòng Lấy Máu (P.102)",
+        "Kết quả xét nghiệm sau 45 phút"
+      ],
+      "suggested_action": "Điều hướng sang Khoa Xét nghiệm và thông báo thời gian trả kết quả.",
+      "clinical_guideline": "Lấy mẫu bệnh phẩm chuẩn."
+    },
+    {
+      "id": "lab_vitals",
+      "intent": "lab_diagnostic",
+      "priority": 80,
+      "title": "Đo chỉ số sinh hiệu (Huyết áp, Chiều cao, Cân nặng)",
+      "specialty": "Bàn Tiếp đón / Đo sinh hiệu",
+      "gloss_triggers": ["HUYẾT-ÁP", "CÂN-NẶNG", "CHIỀU-CAO", "BMI"],
+      "text_keywords": ["huyết áp", "đo huyết áp", "cân nặng", "chiều cao", "bmi"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Mời bạn xắn tay áo để đo huyết áp",
+        "Chỉ số huyết áp của bạn bình thường"
+      ],
+      "suggested_action": "Đo sinh hiệu tại bàn tiếp đón trước khi vào phòng khám.",
+      "clinical_guideline": "Ghi nhận mạch, huyết áp, thân nhiệt, BMI đầu vào."
+    },
+    {
+      "id": "specialty_dental",
+      "intent": "specialty_ent_dental",
+      "priority": 70,
+      "title": "Vấn đề Răng - Hàm - Mặt",
+      "specialty": "Khoa Răng - Hàm - Mặt (Nha khoa)",
+      "gloss_triggers": ["RĂNG", "ĐAU-RĂNG", "SÂU-RĂNG", "CHÂN-RĂNG", "NHỔ-RĂNG", "CẠO-RĂNG"],
+      "text_keywords": ["răng", "đau răng", "sâu răng", "chân răng", "nhổ răng", "cạo vôi", "sưng lợi"],
+      "symptoms": ["Vấn đề Răng - Hàm - Mặt"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["CHẢY-MÁU", "KHÓ-THỞ", "sưng to mặt", "chảy máu không cầm"],
+        "escalate_to": "Khoa Cấp cứu / Phẫu thuật Hàm mặt",
+        "alert": "Chảy máu răng miệng nhiều hoặc sưng nề đường thở cần xử trí khẩn."
+      },
+      "required_slots": ["onset", "severity", "allergy"],
+      "follow_up_questions": {
+        "allergy": "Bạn có bị dị ứng thuốc tê hoặc kháng sinh không?",
+        "onset": "Bạn bị đau răng từ khi nào?",
+        "severity": "Răng đau nhẹ hay đau dữ dội cả đêm?"
+      },
+      "default_responses": [
+        "Mời bạn lên ghế nha khoa",
+        "Bác sĩ kiểm tra răng cho bạn nhé",
+        "Chưa cần nhổ, bác sĩ sẽ trám"
+      ],
+      "suggested_action": "Điều phối vào Khoa Răng - Hàm - Mặt và xác nhận tiền sử dị ứng thuốc tê.",
+      "clinical_guideline": "Bắt buộc kiểm tra tiền sử dị ứng thuốc tê và kháng sinh trước thủ thuật nha khoa."
+    },
+    {
+      "id": "specialty_ent",
+      "intent": "specialty_ent_dental",
+      "priority": 70,
+      "title": "Bệnh lý Tai - Mũi - Họng",
+      "specialty": "Khoa Tai - Mũi - Họng",
+      "gloss_triggers": ["AMIDAN", "XOANG", "VIÊM-XOANG", "TAI", "TAI-Ù", "HỌNG", "ĐAU-HỌNG", "MŨI-NGHẸT"],
+      "text_keywords": ["amidan", "xoang", "viêm xoang", "tai", "ù tai", "đau tai", "họng", "đau họng", "nghẹt mũi", "sổ mũi"],
+      "symptoms": ["Bệnh lý Tai - Mũi - Họng"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["KHÓ-THỞ", "THỞ-KHÓ", "nuốt nghẹn hoàn toàn"],
+        "escalate_to": "Khoa Cấp cứu (Hồi sức cấp cứu)",
+        "alert": "Phù nề họng / thanh quản gây khó thở cần cấp cứu đường thở ngay."
+      },
+      "required_slots": ["onset", "severity", "allergy"],
+      "follow_up_questions": {
+        "onset": "Triệu chứng tai mũi họng này xuất hiện từ khi nào?",
+        "severity": "Bạn thấy đau/khó chịu nhẹ hay nặng, có sốt kèm không?",
+        "allergy": "Bạn có dị ứng thuốc kháng sinh nào không?"
+      },
+      "default_responses": [
+        "Mời bạn vào ghế soi tai mũi họng",
+        "Bác sĩ kiểm tra vòm họng nhé"
+      ],
+      "suggested_action": "Điều phối vào Khoa Tai - Mũi - Họng và kiểm tra dị ứng kháng sinh.",
+      "clinical_guideline": "Nội soi Tai - Mũi - Họng và sàng lọc dị ứng thuốc."
+    },
+    {
+      "id": "specialty_eye",
+      "intent": "specialty_other",
+      "priority": 65,
+      "title": "Bệnh lý về mắt / Khúc xạ",
+      "specialty": "Khoa Mắt (Nhãn khoa)",
+      "gloss_triggers": ["CẬN-THỊ", "MẮT", "MẮT-TRÁI", "ĐEO-KÍNH"],
+      "text_keywords": ["cận thị", "mắt", "đau mắt", "mờ mắt", "đeo kính", "cộm mắt"],
+      "symptoms": ["Bệnh lý về mắt / Khúc xạ"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["mất thị lực đột ngột", "chấn thương mắt", "CHẢY-MÁU"],
+        "escalate_to": "Khoa Cấp cứu Nhãn khoa",
+        "alert": "Mất thị lực đột ngột hoặc chấn thương mắt cần khám khẩn."
+      },
+      "required_slots": ["onset", "body_location", "allergy"],
+      "follow_up_questions": {
+        "body_location": "Bạn bị ở mắt trái, mắt phải hay cả hai mắt?",
+        "onset": "Tình trạng mờ/đau mắt bắt đầu từ khi nào?",
+        "allergy": "Bạn có tiền sử dị ứng thuốc nhỏ mắt hay thuốc kháng sinh không?"
+      },
+      "default_responses": [
+        "Mời bạn vào máy đo khúc xạ",
+        "Mời bạn đọc bảng chữ cái trên tường"
+      ],
+      "suggested_action": "Phân luồng vào Khoa Mắt và hỗ trợ đo thị lực.",
+      "clinical_guideline": "Đo thị lực hai mắt và kiểm tra tiền sử dị ứng."
+    },
+    {
+      "id": "specialty_dermatology",
+      "intent": "specialty_other",
+      "priority": 65,
+      "title": "Bệnh lý ngoài da / Da liễu",
+      "specialty": "Khoa Da liễu",
+      "gloss_triggers": ["NGỨA", "NGỨA-NHIỀU", "DA", "NẤM-DA", "DỊ-ỨNG"],
+      "text_keywords": ["ngứa", "nấm da", "dị ứng", "phát ban", "nổi mẩn", "mề đay"],
+      "symptoms": ["Bệnh lý ngoài da / Da liễu"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["KHÓ-THỞ", "sưng môi", "sưng mặt", "choáng"],
+        "escalate_to": "Khoa Cấp cứu (Nghi phản vệ)",
+        "alert": "Phát ban/dị ứng kèm khó thở hoặc phù mặt là dấu hiệu phản vệ khẩn cấp!"
+      },
+      "required_slots": ["onset", "body_location", "allergy"],
+      "follow_up_questions": {
+        "onset": "Vùng ngứa / nổi mẩn xuất hiện từ khi nào?",
+        "body_location": "Vùng da bị ngứa ở vị trí nào trên cơ thể?",
+        "allergy": "Bạn có nghi ngờ dị ứng thức ăn hay thuốc gì gần đây không?"
+      },
+      "default_responses": [
+        "Vùng ngứa nổi từ bao giờ?",
+        "Bạn có đang bôi thuốc gì không?"
+      ],
+      "suggested_action": "Phân luồng vào Khoa Da liễu; hỏi kỹ thuốc bôi và yếu tố gây dị ứng.",
+      "clinical_guideline": "Loại trừ sốc phản vệ nếu có phù mạch hoặc khó thở."
+    },
+    {
+      "id": "specialty_ortho",
+      "intent": "specialty_other",
+      "priority": 65,
+      "title": "Bệnh lý Cơ - Xương - Khớp",
+      "specialty": "Khoa Cơ - Xương - Khớp",
+      "gloss_triggers": ["KHỚP-GỐI", "GỐI", "KHỚP", "LƯNG", "XƯƠNG", "LOÃNG-XƯƠNG", "TÊ-TAY", "CHÂN"],
+      "text_keywords": ["khớp gối", "đau gối", "khớp", "đau lưng", "xương", "loãng xương", "tê tay", "tê chân", "đau chân"],
+      "symptoms": ["Bệnh lý Cơ - Xương - Khớp"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["gãy xương", "CHẢY-MÁU", "không cử động được", "liệt"],
+        "escalate_to": "Khoa Cấp cứu Chấn thương",
+        "alert": "Chấn thương cấp hoặc yếu liệt chi cần cấp cứu cố định ngay."
+      },
+      "required_slots": ["onset", "severity", "body_location"],
+      "follow_up_questions": {
+        "body_location": "Bạn bị đau ở khớp/vị trí cụ thể nào (trái hay phải)?",
+        "onset": "Tình trạng đau/tê này xuất hiện từ khi nào (có té ngã trước đó không)?",
+        "severity": "Khớp đau nhẹ hay đau nhiều khi đi lại?"
+      },
+      "default_responses": [
+        "Khớp đau khi đi lại hay lúc nghỉ?",
+        "Mời bạn ngồi để bác sĩ kiểm tra khớp"
+      ],
+      "suggested_action": "Phân luồng vào Khoa Cơ - Xương - Khớp.",
+      "clinical_guideline": "Đánh giá tính chất đau cơ học/viêm và tiền sử chấn thương."
+    },
+    {
+      "id": "inquiry_hospital",
+      "intent": "inquiry",
+      "priority": 60,
+      "title": "Hỏi đáp thông tin thời gian chờ / thủ tục / phòng khám",
+      "specialty": "Quầy Tiếp đón & Hướng dẫn",
+      "gloss_triggers": ["CHỜ", "LÂU", "HẸN", "CHI-PHÍ", "LỊCH-HẸN"],
+      "text_keywords": ["chờ", "lâu", "hẹn", "ở đâu", "phòng này", "bao nhiêu", "chi phí", "tiền", "mấy giờ", "bác sĩ tên", "tái khám"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Dự kiến chờ khoảng 10-15 phút nữa",
+        "Đúng rồi, mời bạn ngồi chờ ở phòng này",
+        "Chi phí đã được bảo hiểm y tế chi trả",
+        "Mời bạn qua Bàn Hướng dẫn số 1"
+      ],
+      "suggested_action": "Hiển thị thời gian chờ dự kiến và hướng dẫn vị trí phòng khám cho người bệnh.",
+      "clinical_guideline": "Giao tiếp minh bạch về thời gian chờ và chi phí."
+    },
+    {
+      "id": "sym_digestive",
+      "intent": "symptom_report",
+      "priority": 55,
+      "title": "Triệu chứng Tiêu hóa (Đau bụng / Tiêu chảy / Nôn)",
+      "specialty": "Khoa Nội tiêu hóa",
+      "gloss_triggers": ["ĐAU-BỤNG", "BỤNG-ĐAU", "TIÊU-CHẢY", "NÔN"],
+      "text_keywords": ["đau bụng", "tiêu chảy", "đi ngoài", "buồn nôn", "nôn", "đau dạ dày"],
+      "symptoms": ["Đau bụng / Rối loạn tiêu hóa"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["NÔN-MÁU", "nôn ra máu", "đi ngoài ra máu", "dữ dội", "KHÓ-THỞ", "ngất"],
+        "escalate_to": "Khoa Cấp cứu (Hồi sức cấp cứu)",
+        "alert": "Đau bụng dữ dội hoặc nôn ra máu cần xử trí cấp cứu ngoại/tiêu hóa ngay!"
+      },
+      "required_slots": ["body_location", "onset", "severity", "allergy"],
+      "follow_up_questions": {
+        "body_location": "Bạn đau bụng vùng nào (trên rốn, dưới rốn, bên phải hay trái)?",
+        "onset": "Bạn bị đau bụng / rối loạn tiêu hóa từ khi nào?",
+        "severity": "Cơn đau âm ỉ hay quặn từng cơn dữ dội?",
+        "allergy": "Bạn có bị dị ứng loại thuốc nào không?"
+      },
+      "default_responses": [
+        "Bạn đau bụng vùng nào?",
+        "Bạn bị đau bụng từ khi nào?",
+        "Bạn có bị dị ứng thuốc không?"
+      ],
+      "suggested_action": "Phân luồng vào Khoa Nội tiêu hóa. Hỏi vị trí đau bụng, thời gian và tiền sử dị ứng.",
+      "clinical_guideline": "Khai thác vị trí đau bụng, tính chất phân/nôn và loại trừ ngoại khoa cấp."
+    },
+    {
+      "id": "sym_respiratory",
+      "intent": "symptom_report",
+      "priority": 55,
+      "title": "Triệu chứng Hô hấp / Sốt (Ho / Khan tiếng / Sốt)",
+      "specialty": "Khoa Nội hô hấp",
+      "gloss_triggers": ["HO", "KHAN-HO", "SỐT"],
+      "text_keywords": ["ho", "ho khan", "ho có đờm", "khàn tiếng", "sốt", "cảm cúm"],
+      "symptoms": ["Ho / Sốt (Triệu chứng hô hấp)"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["KHÓ-THỞ", "THỞ-KHÓ", "NGỰC-ĐAU", "ho ra máu", "sốt cao co giật"],
+        "escalate_to": "Khoa Cấp cứu (Hồi sức cấp cứu)",
+        "alert": "Ho/sốt kèm khó thở hoặc đau ngực cần đo SpO2 và xử trí cấp cứu ngay!"
+      },
+      "required_slots": ["onset", "severity", "allergy"],
+      "follow_up_questions": {
+        "onset": "Bạn bị ho / sốt bắt đầu từ hôm nào?",
+        "severity": "Bạn sốt cao hay nhẹ, ho nhiều không?",
+        "allergy": "Bạn có bị dị ứng thuốc hạ sốt hay kháng sinh không?"
+      },
+      "default_responses": [
+        "Bạn bị ho / sốt từ khi nào?",
+        "Bạn có thấy khó thở không?",
+        "Bạn có dị ứng thuốc kháng sinh không?"
+      ],
+      "suggested_action": "Phân luồng vào Khoa Nội hô hấp. Điều dưỡng đo thân nhiệt và SpO2.",
+      "clinical_guideline": "Đo nhiệt độ, SpO2 và sàng lọc khó thở/dị ứng thuốc."
+    },
+    {
+      "id": "sym_neuro_general",
+      "intent": "symptom_report",
+      "priority": 55,
+      "title": "Triệu chứng Thần kinh / Toàn thân (Đau đầu / Chóng mặt / Mệt mỏi)",
+      "specialty": "Khoa Nội thần kinh / Nội tổng hợp",
+      "gloss_triggers": ["ĐAU-ĐẦU", "ĐẦU-ĐAU", "CHÓNG-MẶT", "MỆT"],
+      "text_keywords": ["đau đầu", "nhức đầu", "chóng mặt", "choáng váng", "mệt mỏi", "suy nhược"],
+      "symptoms": ["Đau đầu / Chóng mặt / Mệt mỏi"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["BẤT-TỈNH", "CO-GIẬT", "yếu tay chân", "nói ngọng", "đau đầu dữ dội"],
+        "escalate_to": "Khoa Cấp cứu (Sàng lọc Đột quỵ)",
+        "alert": "Đau đầu/chóng mặt kèm ngất, co giật hoặc yếu liệt cần sàng lọc cấp cứu ngay!"
+      },
+      "required_slots": ["onset", "severity", "allergy"],
+      "follow_up_questions": {
+        "onset": "Tình trạng đau đầu / chóng mặt bắt đầu từ khi nào?",
+        "severity": "Bạn thấy đau nhẹ hay chóng mặt nhiều đến mức khó đứng vững?",
+        "allergy": "Bạn có đang dùng thuốc huyết áp hay dị ứng thuốc gì không?"
+      },
+      "default_responses": [
+        "Bạn bị đau đầu / chóng mặt từ khi nào?",
+        "Bạn đau nhẹ hay dữ dội?",
+        "Bạn có dị ứng thuốc gì không?"
+      ],
+      "suggested_action": "Phân luồng vào Khoa Nội thần kinh / Nội tổng hợp. Đo huyết áp ngay tại quầy.",
+      "clinical_guideline": "Đo huyết áp và sàng lọc dấu hiệu thần kinh khu trú."
+    },
+    {
+      "id": "sym_sleep_metabolic",
+      "intent": "symptom_report",
+      "priority": 54,
+      "title": "Rối loạn giấc ngủ / Chuyển hóa (Mất ngủ / Thừa cân)",
+      "specialty": "Khoa Nội tổng hợp / Chuyên khoa Giấc ngủ",
+      "gloss_triggers": ["MẤT-NGỦ", "BÉO-PHÌ"],
+      "text_keywords": ["mất ngủ", "khó ngủ", "ngủ không được", "béo phì", "thừa cân"],
+      "symptoms": ["Mất ngủ / Rối loạn giấc ngủ hoặc chuyển hóa"],
+      "allergy_required": true,
+      "red_flags": null,
+      "required_slots": ["onset", "severity", "allergy"],
+      "follow_up_questions": {
+        "onset": "Bạn bị khó ngủ / tình trạng này kéo dài bao lâu rồi?",
+        "severity": "Mỗi đêm bạn ngủ được khoảng mấy tiếng, có mệt nhiều ban ngày không?",
+        "allergy": "Bạn có đang uống thuốc hỗ trợ hay dị ứng thuốc gì không?"
+      },
+      "default_responses": [
+        "Bạn bị khó ngủ bao lâu rồi?",
+        "Ban ngày bạn có mệt nhiều không?",
+        "Bạn có đang dùng thuốc gì không?"
+      ],
+      "suggested_action": "Phân luồng vào Khoa Nội tổng hợp. Khai thác thời gian kéo dài và thuốc đang dùng.",
+      "clinical_guideline": "Hỏi thời gian mất ngủ/chuyển hóa và thuốc đang sử dụng."
+    },
+    {
+      "id": "sym_general_pain",
+      "intent": "symptom_report",
+      "priority": 50,
+      "title": "Đau nhức chưa rõ vị trí",
+      "specialty": "Khoa Nội tổng hợp",
+      "gloss_triggers": ["ĐAU", "BỆNH"],
+      "text_keywords": ["đau", "nhức", "khó chịu trong người"],
+      "symptoms": ["Đau nhức cơ thể"],
+      "allergy_required": true,
+      "red_flags": {
+        "triggers": ["NGỰC-ĐAU", "ĐAU-NGỰC", "KHÓ-THỞ", "dữ dội"],
+        "escalate_to": "Khoa Cấp cứu (Hồi sức cấp cứu)",
+        "alert": "Đau dữ dội hoặc đau vùng ngực kèm khó thở cần đánh giá cấp cứu ngay."
+      },
+      "required_slots": ["body_location", "onset", "severity", "allergy"],
+      "follow_up_questions": {
+        "body_location": "Bạn đang thấy đau ở vị trí nào trên cơ thể?",
+        "onset": "Cơn đau bắt đầu xuất hiện từ khi nào?",
+        "severity": "Bạn đau nhẹ âm ỉ hay đau nhiều?",
+        "allergy": "Bạn có bị dị ứng thuốc nào không?"
+      },
+      "default_responses": [
+        "Bạn đau ở vị trí nào?",
+        "Cơn đau xuất hiện từ khi nào?",
+        "Bạn có dị ứng thuốc không?"
+      ],
+      "suggested_action": "Hỏi làm rõ vị trí đau trên Sơ đồ cơ thể để phân đúng chuyên khoa.",
+      "clinical_guideline": "Xác định vị trí giải phẫu trước khi chốt chuyên khoa."
+    },
+    {
+      "id": "registration_default",
+      "intent": "registration",
+      "priority": 10,
+      "title": "Thủ tục hành chính / Đăng ký khám",
+      "specialty": "Bàn Đăng ký khám / Quầy Tiếp đón",
+      "gloss_triggers": ["ĐĂNG-KÝ", "KHÁM", "BẢO-HIỂM", "CCCD", "THẺ"],
+      "text_keywords": ["đăng ký", "khám bệnh", "bảo hiểm", "bhyt", "cccd", "giấy tờ", "lấy số"],
+      "symptoms": [],
+      "allergy_required": false,
+      "required_slots": [],
+      "follow_up_questions": {},
+      "default_responses": [
+        "Đã nhận thông tin, mời bạn ngồi chờ gọi số",
+        "Mời bạn xuất trình thẻ BHYT / CCCD",
+        "Mời bạn sang Bàn Lấy Số bên cạnh"
+      ],
+      "suggested_action": "Xác nhận thông tin hành chính, cấp số thứ tự và hướng dẫn bàn tiếp nhận.",
+      "clinical_guideline": "Kiểm tra giấy tờ tùy thân và thẻ BHYT."
+    }
+  ]
+}
+
