@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 import gemini_client
+from vsl_text_helper import format_vsl_sentence
 
 logger = logging.getLogger("vsl_synthesizer")
 
@@ -633,6 +634,7 @@ class VSLSynthesizer:
             "mode": "full_sentence" if full_entry else ("stitched" if glosses else "text_only"),
             "matched_sample_id": full_entry["video_id"] if full_entry else None,
             "vsl_glosses": glosses,
+            "vsl_text": format_vsl_sentence(glosses, missing_terms=missing),
             "missing_terms": missing,
             "translation_source": source,
         }
@@ -658,6 +660,7 @@ class VSLSynthesizer:
                     "video_id": full_entry["video_id"],
                     "text": text,
                     "gloss_sequence": full_entry["gloss_sequence"],
+                    "vsl_text": format_vsl_sentence(full_entry["gloss_sequence"], missing_terms=missing),
                     "missing_terms": missing,
                     "fps": 30,
                     "num_frames": int(len(arr)),
@@ -702,6 +705,7 @@ class VSLSynthesizer:
                 "video_id": None,
                 "text": text,
                 "gloss_sequence": glosses,
+                "vsl_text": format_vsl_sentence(glosses, missing_terms=missing),
                 "missing_terms": missing,
                 "fps": 30,
                 "num_frames": 0,
@@ -710,11 +714,13 @@ class VSLSynthesizer:
             }
 
         stitched = np.concatenate(clips, axis=0)
+        seq_glosses = [b["gloss"] for b in boundaries]
         return {
             "mode": "stitched",
             "video_id": f"SYNTH_{len(glosses)}_GLOSSES",
             "text": text,
-            "gloss_sequence": [b["gloss"] for b in boundaries],
+            "gloss_sequence": seq_glosses,
+            "vsl_text": format_vsl_sentence(seq_glosses, missing_terms=missing),
             "missing_terms": missing,
             "fps": 30,
             "num_frames": int(len(stitched)),

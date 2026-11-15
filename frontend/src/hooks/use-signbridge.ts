@@ -107,12 +107,20 @@ export function useSendPatientMessage() {
       text,
       source,
       gloss_sequence,
+      vsl_text,
     }: {
       ticketNumber: string
       text: string
       source?: "vsl" | "body_map" | "quick_reply" | "text"
       gloss_sequence?: string[]
-    }) => api.sendPatientMessage(ticketNumber, { text, source, gloss_sequence }),
+      vsl_text?: string | null
+    }) =>
+      api.sendPatientMessage(ticketNumber, {
+        text,
+        source,
+        gloss_sequence,
+        vsl_text,
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["queue"] })
     },

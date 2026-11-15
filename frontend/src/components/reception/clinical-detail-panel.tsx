@@ -1,6 +1,5 @@
 import * as React from "react"
 import {
-  AlertCircle,
   ArrowRightCircle,
   Check,
   CheckCircle2,
@@ -107,7 +106,7 @@ export function ClinicalDetailPanel({
         <div className="max-w-sm space-y-1">
           <h3 className="text-base font-semibold">Chưa chọn hồ sơ người thăm khám</h3>
           <p className="text-sm text-muted-foreground">
-            Chọn một phiếu từ danh sách hàng đợi bên trái để xem thông tin tiếp nhận bóc tách và gửi hướng dẫn 1 chạm đến Kiosk.
+            Chọn một phiếu từ danh sách hàng đợi bên trái để xem nội dung người thăm khám đã gửi, tự đánh giá tiếp nhận và gửi hướng dẫn 1 chạm đến Kiosk.
           </p>
         </div>
       </Card>
@@ -177,7 +176,7 @@ export function ClinicalDetailPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Hồ Sơ Tiếp Nhận Bóc Tách Tự Động
+              Thông Tin Tiếp Nhận Từ Kiosk
             </p>
             <h2 className="font-display text-xl font-semibold">
               {selectedCase.patient_name} — Phiếu #{selectedCase.ticket_number}
@@ -214,70 +213,51 @@ export function ClinicalDetailPanel({
           </div>
         )}
 
-        <div className="rounded-xl border bg-muted/40 p-4 space-y-1">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Tóm Tắt Chuyên Môn Cho Nhân Viên Tiếp Nhận
-          </p>
-          <p className="text-base font-semibold leading-relaxed">
-            {frame.summary_for_clinician}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border bg-background p-3.5 space-y-1">
+        <div className="rounded-xl border bg-muted/40 p-4 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Chuyên Khoa Đề Xuất
+              Nội Dung Người Thăm Khám Đã Gửi
             </p>
-            <p className="text-sm font-semibold text-primary">
-              {frame.specialty ?? "Bàn Tiếp Nhận Chung"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border bg-background p-3.5 space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Triệu Chứng Ghi Nhận
-            </p>
-            <p className="text-sm font-semibold">
-              {frame.symptoms?.length > 0
-                ? frame.symptoms.join(", ")
-                : "Không có triệu chứng cấp"}
-            </p>
-          </div>
-
-          <div className="rounded-xl border bg-background p-3.5 space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Khởi Phát & Mức Độ
-            </p>
-            <p className="text-sm font-semibold">
-              {[frame.body_location, frame.onset, frame.severity]
-                .filter(Boolean)
-                .join(" • ") || "Chưa ghi nhận"}
-            </p>
-          </div>
-        </div>
-
-        {frame.needs_human_review && frame.review_reasons?.length > 0 && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-warning/40 bg-warning/15 p-3.5">
-            <AlertCircle
-              className="mt-0.5 size-4 shrink-0 text-warning-foreground"
-              aria-hidden
-            />
-            <div className="space-y-0.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-warning-foreground">
-                Lưu Ý Cần Nhân Viên Khảo Sát Thêm
-              </p>
-              <p className="text-sm text-foreground">
-                {frame.review_reasons.join(" • ")}
-              </p>
+            <div className="flex items-center gap-2">
+              {selectedCase.status === "need_help" && (
+                <Badge variant="warning">Cần hỗ trợ trực tiếp</Badge>
+              )}
+              {selectedCase.status === "edited" && (
+                <Badge variant="outline">Đã chỉnh sửa trước khi gửi</Badge>
+              )}
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {selectedCase.created_at}
+              </span>
             </div>
           </div>
-        )}
 
-        <div className="rounded-xl border bg-muted/30 p-4 space-y-1">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Hướng Xử Trí Tiếp Đón Đề Xuất
+          <p className="text-base font-semibold leading-relaxed text-foreground">
+            “{selectedCase.confirmed_text}”
           </p>
-          <p className="text-sm">{frame.suggested_action}</p>
+
+          {selectedCase.vsl_text && (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold text-primary">Trật tự VSL:</span>{" "}
+              {selectedCase.vsl_text}
+            </p>
+          )}
+
+          {selectedCase.gloss_sequence && selectedCase.gloss_sequence.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Ký hiệu đã nhận diện:
+              </span>
+              {selectedCase.gloss_sequence.map((gloss, idx) => (
+                <Badge
+                  key={`${gloss}-${idx}`}
+                  variant="secondary"
+                  className="text-[11px]"
+                >
+                  {gloss}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

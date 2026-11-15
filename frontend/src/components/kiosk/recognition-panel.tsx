@@ -2,11 +2,14 @@ import { CheckCircle2, ShieldAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import type { RecognitionStatus } from "@/lib/types"
+import { resolveVslDisplayText } from "@/lib/vsl-format"
 import { cn } from "@/lib/utils"
 
 interface RecognitionPanelProps {
   glosses: string[]
   translation: string
+  vslText?: string | null
+  showVslOrder?: boolean
   confidence: number
   isPending: boolean
   isRecognized?: boolean
@@ -17,12 +20,22 @@ interface RecognitionPanelProps {
 export function RecognitionPanel({
   glosses,
   translation,
+  vslText,
+  showVslOrder = true,
   confidence,
   isPending,
   isRecognized = true,
   fallbackMessage,
 }: RecognitionPanelProps) {
   const hasResult = Boolean(translation) || !isRecognized
+  const resolvedVsl =
+    isRecognized && hasResult
+      ? resolveVslDisplayText({
+          vslText,
+          glosses,
+          vietnameseText: translation,
+        })
+      : null
 
   return (
     <Card
@@ -84,11 +97,11 @@ export function RecognitionPanel({
 
       <div className="space-y-1.5">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Câu Dịch Tiếng Việt Hoàn Chỉnh
+          {showVslOrder ? "Nội Dung Song Ngữ (Tiếng Việt & Trật Tự VSL)" : "Câu Dịch Tiếng Việt Hoàn Chỉnh"}
         </p>
         <div
           className={cn(
-            "flex min-h-20 items-center rounded-xl border px-4 py-3.5",
+            "flex min-h-20 flex-col justify-center gap-2.5 rounded-xl border px-4 py-3.5",
             !isRecognized
               ? "border-warning/50 bg-warning/10 text-foreground"
               : hasResult
@@ -101,9 +114,29 @@ export function RecognitionPanel({
               ⚠️ {fallbackMessage || "Chưa nhận diện chắc chắn ký hiệu. Để đảm bảo an toàn y khoa, hệ thống không tự ý đoán nghĩa."}
             </p>
           ) : hasResult ? (
-            <p className="font-display text-xl font-semibold leading-snug">
-              {translation}
-            </p>
+            <>
+              <div className="space-y-0.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Tiếng Việt
+                </span>
+                <p className="font-display text-xl font-semibold leading-snug">
+                  {translation}
+                </p>
+              </div>
+
+              {showVslOrder && resolvedVsl && (
+                <div className="rounded-lg border border-primary/20 bg-background/80 px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                      Ngữ pháp VSL
+                    </span>
+                    <p className="text-sm font-semibold text-foreground leading-snug">
+                      {resolvedVsl}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-sm leading-relaxed text-muted-foreground">
               Chưa có kết quả. Hãy bật Camera ra ký hiệu hoặc tải video MP4 lên để nhận diện.

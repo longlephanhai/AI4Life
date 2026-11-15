@@ -19,7 +19,12 @@ from schemas import SemanticFrame, ParseRequest, RecognizeResponse, RecognitionS
 from semantic_parser import parse_semantic_frame
 from ai_engine import ai_engine
 from vsl_synthesizer import vsl_synthesizer
-from patient_reply_helper import suggest_patient_quick_replies
+from patient_reply_helper import (
+    _heuristic_to_vsl_order,
+    suggest_patient_quick_replies,
+    suggest_patient_quick_reply_items,
+)
+from vsl_text_helper import format_vsl_sentence
 import gemini_client
 
 app = FastAPI(
@@ -205,6 +210,7 @@ async def api_recognize(
         fallback_message=fallback_message,
         gloss_sequence=glosses,
         translation=translation,
+        vsl_text=format_vsl_sentence(glosses) if is_recognized else None,
         confidence=confidence,
         semantic_frame=frame,
         extracted_frames=extracted_frames,
@@ -218,6 +224,7 @@ class ConfirmRequest(BaseModel):
     status: str = "confirmed"  # "confirmed" (Đúng) | "edited" (Đã sửa) | "need_help" (Gọi hỗ trợ)
     confirmed_text: str
     gloss_sequence: Optional[List[str]] = None
+    vsl_text: Optional[str] = None
     confidence: Optional[float] = 0.96
     semantic_frame: SemanticFrame
 
@@ -234,12 +241,18 @@ def api_confirm(req: ConfirmRequest):
     ticket_number = f"{prefix}{TICKET_COUNTER:03d}"
 
     created_at = datetime.now().strftime("%H:%M:%S")
+    resolved_vsl_text = req.vsl_text or format_vsl_sentence(req.gloss_sequence)
+    if not resolved_vsl_text and req.confirmed_text:
+        plan = vsl_synthesizer.preview_gloss_plan(req.confirmed_text)
+        resolved_vsl_text = plan.get("vsl_text") or _heuristic_to_vsl_order(req.confirmed_text)
+
     record = {
         "ticket_number": ticket_number,
         "patient_name": req.patient_name or "Bệnh nhân VSL",
         "status": req.status,
         "confirmed_text": req.confirmed_text,
         "gloss_sequence": req.gloss_sequence or [],
+        "vsl_text": resolved_vsl_text,
         "confidence": req.confidence or 0.96,
         "semantic_frame": req.semantic_frame.model_dump() if hasattr(req.semantic_frame, "model_dump") else req.semantic_frame.dict(),
         "created_at": created_at,
@@ -249,6 +262,7 @@ def api_confirm(req: ConfirmRequest):
                 "id": 1,
                 "sender": "patient",
                 "text": req.confirmed_text,
+                "vsl_text": resolved_vsl_text,
                 "source": req.status,
                 "gloss_sequence": req.gloss_sequence or [],
                 "timestamp": created_at,
@@ -299,6 +313,7 @@ class PatientMessageRequest(BaseModel):
     text: str
     source: str = "vsl"  # "vsl" | "body_map" | "quick_reply" | "text"
     gloss_sequence: Optional[List[str]] = None
+    vsl_text: Optional[str] = None
 
 
 def _match_vsl_sample_id(message: str) -> Optional[str]:
@@ -404,10 +419,23 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
         vsl_plan = vsl_synthesizer.preview_gloss_plan(req.message)
 
     matched_sample_id = vsl_plan["matched_sample_id"] or (_match_vsl_sample_id(req.message) if req.send_vsl else None)
-    patient_quick_replies = suggest_patient_quick_replies(req.message)
+    patient_quick_reply_items = suggest_patient_quick_reply_items(req.message)
+    patient_quick_replies = [item["text"] for item in patient_quick_reply_items]
+
+    # Luôn chuẩn bị bản chữ theo ngữ pháp VSL dễ đọc ngay cả khi tắt phát khung xương
+    if vsl_plan.get("vsl_glosses"):
+        reply_vsl_text = format_vsl_sentence(
+            vsl_plan["vsl_glosses"],
+            missing_terms=vsl_plan.get("missing_terms"),
+        )
+    else:
+        readable_plan = vsl_synthesizer.preview_gloss_plan(req.message)
+        reply_vsl_text = readable_plan.get("vsl_text") or _heuristic_to_vsl_order(req.message)
+
     reply_payload = {
         "ticket_number": ticket_number,
         "message": req.message,
+        "vsl_text": reply_vsl_text,
         "clinician_name": req.clinician_name,
         "category": cat,
         "matched_sample_id": matched_sample_id,
@@ -415,6 +443,7 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
         "vsl_glosses": vsl_plan["vsl_glosses"],
         "missing_terms": vsl_plan["missing_terms"],
         "patient_quick_replies": patient_quick_replies,
+        "patient_quick_reply_items": patient_quick_reply_items,
         "send_vsl": req.send_vsl,
         "replied_at": replied_at,
         "patient_ack": None
@@ -429,12 +458,14 @@ def api_doctor_reply(ticket_number: str, req: DoctorReplyRequest):
                 "sender": "clinician",
                 "sender_name": req.clinician_name,
                 "text": req.message,
+                "vsl_text": reply_vsl_text,
                 "category": cat,
                 "matched_sample_id": matched_sample_id,
                 "vsl_mode": vsl_plan["mode"],
                 "vsl_glosses": vsl_plan["vsl_glosses"],
                 "missing_terms": vsl_plan["missing_terms"],
                 "patient_quick_replies": patient_quick_replies,
+                "patient_quick_reply_items": patient_quick_reply_items,
                 "send_vsl": req.send_vsl,
                 "timestamp": replied_at,
             })
@@ -454,7 +485,18 @@ def api_patient_ack(ticket_number: str, req: PatientAckRequest):
         "no": "KHÔNG",
         "need_help": "Chưa hiểu — Cần người đến hỗ trợ trực tiếp"
     }
+    action_vsl_labels = {
+        "understood": "Tôi · hiểu rồi · làm ngay",
+        "yes": "Có / Đúng",
+        "no": "Không",
+        "need_help": "Tôi · hiểu chưa · cần người giúp",
+    }
     label = req.note or action_labels.get(req.action, req.action)
+    ack_vsl_text = (
+        action_vsl_labels.get(req.action)
+        if not req.note
+        else _heuristic_to_vsl_order(req.note)
+    )
     acked_at = datetime.now().strftime("%H:%M:%S")
     ack_data = {
         "action": req.action,
@@ -477,6 +519,7 @@ def api_patient_ack(ticket_number: str, req: PatientAckRequest):
                 "id": len(msgs) + 1,
                 "sender": "patient",
                 "text": label,
+                "vsl_text": ack_vsl_text,
                 "source": "ack",
                 "gloss_sequence": [],
                 "timestamp": acked_at,
@@ -496,6 +539,11 @@ def api_patient_message(ticket_number: str, req: PatientMessageRequest):
     Bệnh nhân trả lời tiếp trong phiên đối thoại 2 chiều bằng Ký hiệu VSL, Sơ đồ cơ thể hoặc văn bản.
     """
     sent_at = datetime.now().strftime("%H:%M:%S")
+    resolved_vsl = req.vsl_text or format_vsl_sentence(req.gloss_sequence)
+    if not resolved_vsl and req.text:
+        plan = vsl_synthesizer.preview_gloss_plan(req.text)
+        resolved_vsl = plan.get("vsl_text") or _heuristic_to_vsl_order(req.text)
+
     for c in CLINIC_QUEUE:
         if c["ticket_number"] == ticket_number:
             msgs = c.setdefault("messages", [])
@@ -503,6 +551,7 @@ def api_patient_message(ticket_number: str, req: PatientMessageRequest):
                 "id": len(msgs) + 1,
                 "sender": "patient",
                 "text": req.text,
+                "vsl_text": resolved_vsl,
                 "source": req.source,
                 "gloss_sequence": req.gloss_sequence or [],
                 "timestamp": sent_at,
@@ -657,6 +706,7 @@ def api_get_sample_keypoints(sample_id: str):
             fallback_message=pred["fallback_message"],
             gloss_sequence=glosses,
             translation=translation,
+            vsl_text=format_vsl_sentence(glosses) if is_recognized else None,
             confidence=confidence,
             semantic_frame=frame,
         ),

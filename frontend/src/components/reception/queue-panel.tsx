@@ -89,14 +89,15 @@ export function QueuePanel({
               </p>
 
               <div className="flex flex-wrap items-center gap-1.5">
-                <Badge variant="outline">
-                  {item.semantic_frame.specialty ?? "Quầy Tiếp Đón"}
-                </Badge>
                 {isEmergency && <Badge variant="destructive">Cấp cứu đỏ</Badge>}
-                {!isEmergency && item.semantic_frame.needs_human_review && (
-                  <Badge variant="warning">Cần khảo sát thêm</Badge>
+                {item.status === "need_help" && (
+                  <Badge variant="warning">Cần hỗ trợ trực tiếp</Badge>
                 )}
-                {item.doctor_reply && <Badge variant="success">Đã hướng dẫn</Badge>}
+                {item.doctor_reply ? (
+                  <Badge variant="success">Đã hướng dẫn</Badge>
+                ) : (
+                  <Badge variant="outline">Chờ tiếp nhận xử lý</Badge>
+                )}
               </div>
             </button>
           )

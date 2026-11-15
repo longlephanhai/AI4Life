@@ -27,11 +27,13 @@ const FINGERTIPS = new Set([4, 8, 12, 16, 20])
 interface VslSkeletonPlayerProps {
   data: VslSynthesizeResponse | null
   isLoading?: boolean
+  onActiveGlossChange?: (gloss: string | null) => void
 }
 
 export function VslSkeletonPlayer({
   data,
   isLoading = false,
+  onActiveGlossChange,
 }: VslSkeletonPlayerProps) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
   const [frameIdx, setFrameIdx] = React.useState(0)
@@ -58,6 +60,10 @@ export function VslSkeletonPlayer({
     )
     return found?.gloss ?? null
   }, [data, frameIdx])
+
+  React.useEffect(() => {
+    onActiveGlossChange?.(activeGloss)
+  }, [activeGloss, onActiveGlossChange])
 
   // Tính khung bao chung cho toàn bộ clip để giữ nhân vật cân giữa và không bị cắt ngón tay ở rìa dưới
   const clipBounds = React.useMemo(() => {

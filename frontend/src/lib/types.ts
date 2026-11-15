@@ -52,10 +52,16 @@ export interface RecognizeResponse {
   fallback_message?: string | null
   gloss_sequence: string[]
   translation: string
+  vsl_text?: string | null
   confidence: number
   semantic_frame: SemanticFrame
   extracted_frames?: number[][]
   diagnostics?: MotionDiagnostics
+}
+
+export interface QuickReplyItem {
+  text: string
+  vsl_text: string
 }
 
 export interface PatientAck {
@@ -67,6 +73,7 @@ export interface PatientAck {
 export interface DoctorReply {
   ticket_number: string
   message: string
+  vsl_text?: string | null
   clinician_name: string
   replied_at: string
   category?: "insurance" | "direction" | "vital_signs" | "question_yes_no" | "emergency" | "general"
@@ -75,6 +82,7 @@ export interface DoctorReply {
   vsl_glosses?: string[]
   missing_terms?: string[]
   patient_quick_replies?: string[]
+  patient_quick_reply_items?: QuickReplyItem[]
   send_vsl?: boolean
   patient_ack?: PatientAck | null
 }
@@ -84,6 +92,7 @@ export interface DialogueMessage {
   sender: "patient" | "clinician"
   sender_name?: string
   text: string
+  vsl_text?: string | null
   category?: string
   source?: string
   gloss_sequence?: string[]
@@ -92,6 +101,7 @@ export interface DialogueMessage {
   vsl_glosses?: string[]
   missing_terms?: string[]
   patient_quick_replies?: string[]
+  patient_quick_reply_items?: QuickReplyItem[]
   send_vsl?: boolean
   timestamp: string
 }
@@ -100,6 +110,7 @@ export interface VslPreviewResponse {
   mode: "full_sentence" | "stitched" | "text_only"
   matched_sample_id: string | null
   vsl_glosses: string[]
+  vsl_text?: string | null
   missing_terms: string[]
   translation_source?:
     | "exact_dataset"
@@ -115,6 +126,7 @@ export interface VslSynthesizeResponse {
   video_id: string | null
   text: string
   gloss_sequence: string[]
+  vsl_text?: string | null
   missing_terms: string[]
   fps: number
   num_frames: number
@@ -128,6 +140,7 @@ export interface QueueCase {
   status: "confirmed" | "edited" | "need_help"
   confirmed_text: string
   gloss_sequence?: string[]
+  vsl_text?: string | null
   confidence?: number
   semantic_frame: SemanticFrame
   created_at: string
@@ -147,6 +160,7 @@ export interface ConfirmPayload {
   status?: "confirmed" | "edited" | "need_help"
   confirmed_text: string
   gloss_sequence?: string[]
+  vsl_text?: string | null
   confidence?: number
   semantic_frame: SemanticFrame
 }

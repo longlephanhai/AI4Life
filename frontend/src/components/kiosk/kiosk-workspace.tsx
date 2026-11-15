@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Video, X } from "lucide-react"
+import { Languages, Video, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { CameraStage } from "@/components/kiosk/camera-stage"
@@ -8,6 +8,12 @@ import { DialogueSession } from "@/components/kiosk/dialogue-session"
 import { FallbackAssistantPanel } from "@/components/kiosk/fallback-assistant-panel"
 import { RecognitionPanel } from "@/components/kiosk/recognition-panel"
 import { useToast } from "@/components/ui/toast"
+import { api } from "@/lib/api"
+import {
+  mergeCapturedClauses,
+  resolveVslDisplayText,
+  type CapturedVslClause,
+} from "@/lib/vsl-format"
 import {
   useAcknowledgeDoctorReply,
   useConfirmCase,
@@ -38,6 +44,15 @@ export function KioskWorkspace() {
     React.useState<SampleKeypointsResponse | null>(null)
   const [glosses, setGlosses] = React.useState<string[]>([])
   const [translation, setTranslation] = React.useState<string>("")
+  const [vslText, setVslText] = React.useState<string | null>(null)
+  const [showVslOrder, setShowVslOrder] = React.useState<boolean>(() => {
+    try {
+      const saved = window.localStorage.getItem("vsl_dual_text_mode")
+      return saved === null ? true : saved === "true"
+    } catch {
+      return true
+    }
+  })
   const [confidence, setConfidence] = React.useState<number>(0)
   const [isRecognized, setIsRecognized] = React.useState<boolean>(true)
   const [recognitionStatus, setRecognitionStatus] =
@@ -47,7 +62,7 @@ export function KioskWorkspace() {
   const [activeVideoName, setActiveVideoName] = React.useState<string | null>(null)
   const [activeTicket, setActiveTicket] = React.useState<string | null>(null)
   const [capturedClauses, setCapturedClauses] = React.useState<
-    Array<{ translation: string; glosses: string[]; confidence: number }>
+    CapturedVslClause[]
   >([])
   const [isAppendingClause, setIsAppendingClause] = React.useState(false)
 
@@ -55,38 +70,23 @@ export function KioskWorkspace() {
   const [forceShowFallback, setForceShowFallback] = React.useState(false)
 
   const syncMergedClauses = React.useCallback(
-    (
-      nextClauses: Array<{
-        translation: string
-        glosses: string[]
-        confidence: number
-      }>,
-    ) => {
+    (nextClauses: CapturedVslClause[]) => {
       setCapturedClauses(nextClauses)
       if (nextClauses.length === 0) {
         setGlosses([])
         setTranslation("")
+        setVslText(null)
         setConfidence(0)
         setFrame(null)
         return
       }
-      const formatClause = (txt: string) => {
-        const cleaned = txt.trim().replace(/\s+([.?!,])/g, "$1")
-        if (!cleaned) return ""
-        return /[.?!]$/.test(cleaned) ? cleaned : `${cleaned}.`
-      }
-      const mergedText = nextClauses
-        .map((c) => formatClause(c.translation))
-        .filter(Boolean)
-        .join(" ")
-      const mergedGlosses = nextClauses.flatMap((c) => c.glosses)
-      const avgConf =
-        nextClauses.reduce((acc, c) => acc + c.confidence, 0) /
-        nextClauses.length
+      const { mergedText, mergedGlosses, mergedVslText, avgConfidence } =
+        mergeCapturedClauses(nextClauses)
 
       setGlosses(mergedGlosses)
       setTranslation(mergedText)
-      setConfidence(Number(avgConf.toFixed(3)))
+      setVslText(mergedVslText)
+      setConfidence(avgConfidence)
       parseMutation.mutate(
         { gloss_sequence: mergedGlosses, translation: mergedText },
         {
@@ -98,6 +98,14 @@ export function KioskWorkspace() {
     },
     [parseMutation],
   )
+
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem("vsl_dual_text_mode", String(showVslOrder))
+    } catch {
+      // ignore storage errors
+    }
+  }, [showVslOrder])
 
   React.useEffect(() => {
     if (activeTicket) {
@@ -118,6 +126,13 @@ export function KioskWorkspace() {
           setFallbackMessage(rec.fallback_message ?? null)
           setGlosses(rec.gloss_sequence)
           setTranslation(rec.translation)
+          setVslText(
+            rec.vsl_text ??
+              resolveVslDisplayText({
+                glosses: rec.gloss_sequence,
+                vietnameseText: rec.translation,
+              }),
+          )
           setConfidence(rec.confidence)
           setFrame(rec.semantic_frame)
           setIsAppendingClause(false)
@@ -158,6 +173,7 @@ export function KioskWorkspace() {
     setFallbackMessage(msg)
     setGlosses([])
     setTranslation("")
+    setVslText(null)
     setConfidence(0.34)
     setCapturedClauses([])
     setIsAppendingClause(false)
@@ -208,6 +224,7 @@ export function KioskWorkspace() {
           translation: res.translation,
           glosses: res.gloss_sequence,
           confidence: res.confidence,
+          vslText: res.vsl_text,
         }
 
         if (recognized && isAppendingClause && capturedClauses.length > 0) {
@@ -222,6 +239,15 @@ export function KioskWorkspace() {
           }
           setGlosses(res.gloss_sequence)
           setTranslation(res.translation)
+          setVslText(
+            res.is_recognized !== false
+              ? (res.vsl_text ??
+                resolveVslDisplayText({
+                  glosses: res.gloss_sequence,
+                  vietnameseText: res.translation,
+                }))
+              : null,
+          )
           setConfidence(res.confidence)
           setFrame(res.semantic_frame)
         }
@@ -281,6 +307,9 @@ export function KioskWorkspace() {
         status: isManuallyEdited ? "edited" : "confirmed",
         confirmed_text: translation,
         gloss_sequence: glosses,
+        vsl_text:
+          vslText ??
+          resolveVslDisplayText({ glosses, vietnameseText: translation }),
         confidence,
         semantic_frame: frame,
       },
@@ -309,6 +338,21 @@ export function KioskWorkspace() {
           setFallbackMessage(null)
           setGlosses([glossLabel])
           setTranslation(newText)
+          const initialVsl = resolveVslDisplayText({
+            glosses: [glossLabel],
+            vietnameseText: newText,
+          })
+          setVslText(initialVsl)
+          void api
+            .previewVsl(newText)
+            .then((plan) => {
+              if (plan.vsl_text) {
+                setVslText(plan.vsl_text)
+              }
+            })
+            .catch(() => {
+              // keep client-side VSL fallback
+            })
           setConfidence(1.0)
           setFrame(parsed)
           setForceShowFallback(false) // Trở về màn hình xác nhận sẵn sàng gửi
@@ -395,6 +439,7 @@ export function KioskWorkspace() {
     setSamplePlaybackData(null)
     setGlosses([])
     setTranslation("")
+    setVslText(null)
     setConfidence(0)
     setFrame(null)
     setCapturedClauses([])
@@ -428,6 +473,7 @@ export function KioskWorkspace() {
     text: string
     source: "vsl" | "body_map" | "quick_reply" | "text"
     gloss_sequence?: string[]
+    vsl_text?: string | null
   }) => {
     if (!activeTicket) return
     sendPatientMsgMutation.mutate(
@@ -449,6 +495,35 @@ export function KioskWorkspace() {
 
   return (
     <div className="flex w-full flex-col gap-6">
+      {/* Thanh chọn kiểu chữ Song ngữ (Tiếng Việt + Trật tự ngữ pháp VSL) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/35 px-4 py-2.5">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Languages className="size-4 text-primary shrink-0" aria-hidden />
+          <span>
+            Chế độ hiển thị chữ cho người thăm khám:{" "}
+            <strong className="text-foreground">
+              {showVslOrder
+                ? "Song ngữ (Tiếng Việt + Ngữ pháp VSL ở dưới)"
+                : "Chỉ Tiếng Việt chuẩn"}
+            </strong>
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowVslOrder((prev) => !prev)}
+          aria-pressed={showVslOrder}
+          className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+            showVslOrder
+              ? "border-primary/40 bg-primary/15 text-primary hover:bg-primary/20"
+              : "border-border bg-background text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <span>{showVslOrder ? "Đang bật dòng VSL" : "Đang ẩn dòng VSL"}</span>
+          <span className="rounded bg-background/80 px-1.5 py-0.5 text-[10px] uppercase">
+            {showVslOrder ? "Bật" : "Tắt"}
+          </span>
+        </button>
+      </div>
       {/* 
         =========================================================================
         TRẠNG THÁI 1: BÀN KHAI BÁO LIỀN MẠCH (KHI CHƯA CÓ VÉ activeTicket === null)
@@ -529,6 +604,8 @@ export function KioskWorkspace() {
                   <RecognitionPanel
                     glosses={glosses}
                     translation={translation}
+                    vslText={vslText}
+                    showVslOrder={showVslOrder}
                     confidence={confidence}
                     isPending={
                       parseMutation.isPending ||
@@ -573,6 +650,9 @@ export function KioskWorkspace() {
                     <ConfirmationBanner
                       frame={frame}
                       translation={translation}
+                      glosses={glosses}
+                      vslText={vslText}
+                      showVslOrder={showVslOrder}
                       isSending={confirmMutation.isPending}
                       activeTicket={activeTicket}
                       doctorReply={doctorReply}
@@ -625,6 +705,7 @@ export function KioskWorkspace() {
           ticketNumber={activeTicket}
           messages={activeCase?.messages ?? []}
           doctorReply={doctorReply}
+          showVslOrder={showVslOrder}
           isAcking={ackMutation.isPending}
           isSendingMessage={sendPatientMsgMutation.isPending}
           isAnalyzingVideo={recognizeMutation.isPending}

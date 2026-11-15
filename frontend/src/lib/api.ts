@@ -113,6 +113,7 @@ export const api = {
       text: string
       source?: "vsl" | "body_map" | "quick_reply" | "text"
       gloss_sequence?: string[]
+      vsl_text?: string | null
     },
   ): Promise<{ success: boolean; message: DialogueMessage }> {
     return requestJson<{ success: boolean; message: DialogueMessage }>(

@@ -36,11 +36,7 @@ export function ReceptionDashboard({ onSwitchToKiosk }: ReceptionDashboardProps)
   const emergencyCount = cases.filter(
     (c) => c.semantic_frame.intent === "emergency",
   ).length
-  const reviewCount = cases.filter(
-    (c) =>
-      c.semantic_frame.intent !== "emergency" &&
-      c.semantic_frame.needs_human_review,
-  ).length
+  const repliedCount = cases.filter((c) => Boolean(c.doctor_reply)).length
 
   const handleSendReply = (
     ticketNumber: string,
@@ -92,10 +88,8 @@ export function ReceptionDashboard({ onSwitchToKiosk }: ReceptionDashboardProps)
         </StatCard>
 
         <StatCard>
-          <StatCard.Label>Cần Khảo Sát Thêm</StatCard.Label>
-          <StatCard.Value className={reviewCount > 0 ? "text-warning-foreground" : ""}>
-            {reviewCount}
-          </StatCard.Value>
+          <StatCard.Label>Đã Gửi Hướng Dẫn</StatCard.Label>
+          <StatCard.Value>{repliedCount}</StatCard.Value>
         </StatCard>
 
         <StatCard>

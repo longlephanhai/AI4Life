@@ -20,10 +20,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import type { DoctorReply, SemanticFrame } from "@/lib/types"
+import { resolveVslDisplayText } from "@/lib/vsl-format"
 
 interface ConfirmationBannerProps {
   frame: SemanticFrame | null
   translation: string
+  glosses?: string[]
+  vslText?: string | null
+  showVslOrder?: boolean
   isSending: boolean
   activeTicket: string | null
   doctorReply: DoctorReply | null
@@ -41,6 +45,9 @@ type QuestionCategory = "time" | "severity" | "yes_no" | "instruction"
 export function ConfirmationBanner({
   frame,
   translation,
+  glosses = [],
+  vslText,
+  showVslOrder = true,
   isSending,
   activeTicket,
   doctorReply,
@@ -57,6 +64,12 @@ export function ConfirmationBanner({
     (translation
       ? `Ý của bạn là: "${translation}" — Có đúng không?`
       : "Vui lòng kiểm tra thông tin trước khi xác nhận gửi đến Bàn Tiếp Nhận.")
+
+  const resolvedVslPrompt = resolveVslDisplayText({
+    vslText,
+    glosses,
+    vietnameseText: translation,
+  })
 
   // Xác định Icon, chủ đề và loại câu hỏi thông minh dựa trên nội dung bác sĩ gửi
   const getVisualReplyMeta = (reply: DoctorReply) => {
@@ -188,9 +201,17 @@ export function ConfirmationBanner({
             <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <CheckCircle2 className="size-5" aria-hidden />
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               <h3 className="text-base font-semibold">Xác Nhận 2 Chiều (An Toàn Y Khoa)</h3>
               <p className="text-xs text-muted-foreground">{confirmationPrompt}</p>
+              {showVslOrder && resolvedVslPrompt && (
+                <p className="text-xs font-semibold text-primary">
+                  <span className="mr-1.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wider">
+                    Ngữ pháp VSL
+                  </span>
+                  {resolvedVslPrompt} · đúng không?
+                </p>
+              )}
             </div>
           </div>
 
@@ -296,11 +317,30 @@ export function ConfirmationBanner({
                   )}
                 </div>
 
-                {/* Nội dung thông điệp chữ lớn, dễ đọc */}
-                <div className="rounded-xl bg-card/90 p-4 border shadow-inner">
+                {/* Nội dung thông điệp chữ lớn, dễ đọc (Song ngữ Việt + VSL) */}
+                <div className="rounded-xl bg-card/90 p-4 border shadow-inner space-y-2">
                   <p className="font-display text-xl font-bold text-foreground leading-snug">
                     “{doctorReply.message}”
                   </p>
+                  {showVslOrder &&
+                    resolveVslDisplayText({
+                      vslText: doctorReply.vsl_text,
+                      glosses: doctorReply.vsl_glosses,
+                      missingTerms: doctorReply.missing_terms,
+                      vietnameseText: doctorReply.message,
+                    }) && (
+                      <p className="text-sm font-semibold text-primary">
+                        <span className="mr-1.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                          VSL
+                        </span>
+                        {resolveVslDisplayText({
+                          vslText: doctorReply.vsl_text,
+                          glosses: doctorReply.vsl_glosses,
+                          missingTerms: doctorReply.missing_terms,
+                          vietnameseText: doctorReply.message,
+                        })}
+                      </p>
+                    )}
                 </div>
 
                 {/* Phản hồi thông minh theo đúng loại câu hỏi từ bác sĩ */}

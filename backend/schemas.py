@@ -55,6 +55,7 @@ class RecognizeResponse(BaseModel):
     fallback_message: Optional[str] = None
     gloss_sequence: List[str]
     translation: str
+    vsl_text: Optional[str] = None
     confidence: float
     semantic_frame: SemanticFrame
     extracted_frames: Optional[List[List[float]]] = None

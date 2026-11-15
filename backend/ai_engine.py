@@ -256,7 +256,7 @@ class VSLInferenceEngine:
             }
 
         hyp = self.trans_vocab.decode(preds[0].tolist())
-        translation = " ".join(hyp).capitalize()
+        translation = re.sub(r"\s+([.?!,])", r"\1", " ".join(hyp)).strip().capitalize()
         words = [w for w in hyp if w not in [".", "?", ",", "!"]]
 
         # 8. Chống ảo giác tự động điền nốt câu (Incomplete Gesture & Hallucination Guard)
@@ -285,6 +285,16 @@ class VSLInferenceEngine:
                 "translation": f"{single_word.capitalize()}...",
                 "confidence": 0.42,
             }
+
+        if not glosses:
+            try:
+                from vsl_synthesizer import vsl_synthesizer
+
+                plan = vsl_synthesizer.preview_gloss_plan(translation)
+                if plan.get("vsl_glosses"):
+                    glosses = plan["vsl_glosses"]
+            except Exception as exc:
+                logger.debug(f"[AI Engine] Không thể ánh xạ gloss VSL từ câu dịch: {exc}")
 
         if not glosses:
             glosses = [w.upper() for w in hyp if w not in [".", "?", ","]]
