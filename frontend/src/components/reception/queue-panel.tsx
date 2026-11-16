@@ -90,6 +90,24 @@ export function QueuePanel({
 
               <div className="flex flex-wrap items-center gap-1.5">
                 {isEmergency && <Badge variant="destructive">Cấp cứu đỏ</Badge>}
+                {item.qr_pass_enabled && (
+                  <Badge variant="accent">Đã bật QR chờ</Badge>
+                )}
+                {item.call_status === "calling" && (
+                  <Badge variant="warning" className="animate-pulse">
+                    Đang gọi: {item.assigned_room || "Phòng khám"}
+                  </Badge>
+                )}
+                {item.call_status === "on_the_way" && (
+                  <Badge variant="success">
+                    Đang vào: {item.assigned_room || "Phòng khám"}
+                  </Badge>
+                )}
+                {item.call_status === "pre_alert" && (
+                  <Badge variant="secondary">
+                    Báo chuẩn bị: {item.assigned_room || "Phòng khám"}
+                  </Badge>
+                )}
                 {item.status === "need_help" && (
                   <Badge variant="warning">Cần hỗ trợ trực tiếp</Badge>
                 )}

@@ -2,26 +2,33 @@ import * as React from "react"
 import {
   AlertTriangle,
   ArrowRightCircle,
+  BellRing,
   Camera,
   Check,
   CheckCircle2,
   Clock,
   CreditCard,
+  DoorOpen,
+  ExternalLink,
   Hand,
   HeartPulse,
   HelpCircle,
+  MapPin,
   MessageSquare,
   Plus,
+  QrCode,
   RotateCcw,
   Send,
+  Smartphone,
   Stethoscope,
   ThumbsUp,
   Ticket,
   UserCheck,
   X,
 } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CameraStage } from "@/components/kiosk/camera-stage"
 import { VslSkeletonPlayer } from "@/components/kiosk/vsl-skeleton-player"
@@ -29,8 +36,9 @@ import {
   InteractiveBodyMap,
   type BodyRegion,
 } from "@/components/kiosk/interactive-body-map"
-import { useSynthesizeVsl } from "@/hooks/use-signbridge"
+import { useNetworkInfo, useSynthesizeVsl } from "@/hooks/use-signbridge"
 import type {
+  CallStatus,
   DialogueMessage,
   DoctorReply,
   QuickReplyItem,
@@ -57,14 +65,20 @@ interface DialogueSessionProps {
   ticketNumber: string
   messages: DialogueMessage[]
   doctorReply: DoctorReply | null
+  qrPassEnabled?: boolean
+  callStatus?: CallStatus
+  assignedRoom?: string | null
+  callVslText?: string | null
   showVslOrder?: boolean
   isAcking: boolean
+  isConfirmingOnTheWay?: boolean
   isSendingMessage: boolean
   isAnalyzingVideo: boolean
   onAcknowledge: (
     action: "understood" | "yes" | "no" | "need_help",
     note?: string,
   ) => void
+  onConfirmOnTheWay?: () => void
   onSendPatientMessage: (payload: {
     text: string
     source: "vsl" | "body_map" | "quick_reply" | "text"
@@ -79,16 +93,56 @@ export function DialogueSession({
   ticketNumber,
   messages,
   doctorReply,
+  qrPassEnabled = false,
+  callStatus = "waiting",
+  assignedRoom = null,
+  callVslText = null,
   showVslOrder = true,
   isAcking,
+  isConfirmingOnTheWay = false,
   isSendingMessage,
   isAnalyzingVideo,
   onAcknowledge,
+  onConfirmOnTheWay,
   onSendPatientMessage,
   onRecognizeVideo,
   onResetKiosk,
 }: DialogueSessionProps) {
   const synthesizeVslMutation = useSynthesizeVsl()
+  const networkInfoQuery = useNetworkInfo()
+  const [customQrOrigin, setCustomQrOrigin] = React.useState<string>(() => {
+    try {
+      return localStorage.getItem("signbridge_qr_origin") || ""
+    } catch {
+      return ""
+    }
+  })
+
+  const lanQrOrigin = React.useMemo(() => {
+    if (typeof window === "undefined") return ""
+    const { protocol, hostname, port, origin } = window.location
+    const lanIp = networkInfoQuery.data?.lan_ip
+    if ((hostname === "localhost" || hostname === "127.0.0.1") && lanIp) {
+      return `${protocol}//${lanIp}${port ? `:${port}` : ""}`
+    }
+    return origin
+  }, [networkInfoQuery.data?.lan_ip])
+
+  const resolvedQrOrigin = (customQrOrigin.trim() || lanQrOrigin).replace(/\/+$/, "")
+  const qrTicketUrl = `${resolvedQrOrigin}/?ticket=${encodeURIComponent(ticketNumber)}`
+
+  const handleUpdateQrOrigin = (nextVal: string) => {
+    setCustomQrOrigin(nextVal)
+    try {
+      if (nextVal.trim()) {
+        localStorage.setItem("signbridge_qr_origin", nextVal.trim())
+      } else {
+        localStorage.removeItem("signbridge_qr_origin")
+      }
+    } catch {
+      // ignore storage failure
+    }
+  }
   const [replyMode, setReplyMode] = React.useState<
     "none" | "camera" | "body_map"
   >("none")
@@ -336,6 +390,141 @@ export function DialogueSession({
           Hoàn tất lượt khám
         </Button>
       </Card>
+
+      {/* 1b. Cảnh báo gọi lượt ngay trên Kiosk nếu bệnh nhân vẫn đang ở Kiosk */}
+      {callStatus === "calling" && (
+        <Card className="border-2 border-emerald-500 bg-emerald-500/15 p-5 shadow-md">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm animate-bounce">
+                <BellRing className="size-6" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                  ĐẾN LƯỢT CỦA BẠN — MỜI VÀO PHÒNG!
+                </p>
+                <p className="flex items-center gap-1.5 font-display text-2xl font-extrabold text-foreground">
+                  <MapPin className="size-5 text-emerald-600" />
+                  {assignedRoom || "Phòng Tiếp Nhận"}
+                </p>
+                {callVslText && (
+                  <p className="text-sm font-semibold text-muted-foreground">
+                    VSL: <span className="text-foreground">{callVslText}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {onConfirmOnTheWay && (
+              <Button
+                type="button"
+                size="lg"
+                variant="success"
+                loading={isConfirmingOnTheWay}
+                onClick={onConfirmOnTheWay}
+                className="gap-2 font-extrabold shadow-sm"
+              >
+                <DoorOpen className="size-5" />
+                Tôi đã thấy — Đang vào phòng
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {callStatus === "on_the_way" && (
+        <Card className="flex items-center justify-between gap-3 border-emerald-500/40 bg-emerald-500/10 px-5 py-3">
+          <div className="flex items-center gap-2.5 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+            <CheckCircle2 className="size-5 shrink-0" />
+            <span>
+              Đã báo bác sĩ bạn đang di chuyển vào{" "}
+              <strong>{assignedRoom || "phòng khám"}</strong>.
+            </span>
+          </div>
+        </Card>
+      )}
+
+      {/* 1c. Thẻ Chờ Di Động QR — CHỈ HIỆN khi nhân viên tiếp nhận bấm cấp/cho phép hiện */}
+      {qrPassEnabled && (
+        <Card className="flex flex-col gap-3 border-2 border-primary/40 bg-primary/5 px-5 py-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="rounded-xl border bg-white p-2 shadow-xs">
+                <QRCodeSVG value={qrTicketUrl} size={96} level="M" />
+              </div>
+              <div className="space-y-1.5 max-w-xl">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
+                  <QrCode className="size-4" />
+                  <span>Thẻ Chờ Di Động — Quét QR để không bỏ lỡ lượt gọi</span>
+                  <Badge variant="success" className="text-[10px]">
+                    Nhân viên đã bật cho bạn
+                  </Badge>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Dùng điện thoại cùng Wi-Fi quét mã QR để mang theo số thứ tự ra ghế chờ. Khi được gọi vào phòng, điện thoại sẽ{" "}
+                  <strong className="text-foreground">tự rung + nháy màn hình + chỉ tên phòng</strong>.
+                </p>
+                <p className="font-mono text-[11px] text-primary break-all">
+                  {qrTicketUrl}
+                </p>
+              </div>
+            </div>
+
+            <a
+              href={qrTicketUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={buttonVariants({
+                variant: "outline",
+                size: "sm",
+                className: "gap-1.5 shrink-0",
+              })}
+            >
+              <Smartphone className="size-4 text-primary" />
+              Mở Thẻ Chờ trên tab mới
+              <ExternalLink className="size-3.5" />
+            </a>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-t border-primary/15 pt-2.5 text-[11px]">
+            <span className="font-medium text-muted-foreground">Địa chỉ QR:</span>
+            <button
+              type="button"
+              onClick={() => handleUpdateQrOrigin("")}
+              className={`cursor-pointer rounded border px-2 py-0.5 font-medium ${
+                !customQrOrigin.trim()
+                  ? "border-primary bg-primary/15 text-primary"
+                  : "border-border bg-background text-muted-foreground"
+              }`}
+            >
+              Tự động Wi-Fi LAN ({networkInfoQuery.data?.lan_ip || "local"})
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                handleUpdateQrOrigin(
+                  typeof window !== "undefined" ? window.location.origin : "http://localhost:5173",
+                )
+              }
+              className={`cursor-pointer rounded border px-2 py-0.5 font-medium ${
+                customQrOrigin.trim() ===
+                (typeof window !== "undefined" ? window.location.origin : "")
+                  ? "border-primary bg-primary/15 text-primary"
+                  : "border-border bg-background text-muted-foreground"
+              }`}
+            >
+              Localhost (USB adb reverse)
+            </button>
+            <input
+              type="url"
+              value={customQrOrigin}
+              onChange={(e) => handleUpdateQrOrigin(e.target.value)}
+              placeholder="Hoặc dán link HTTPS tunnel (vd: https://xxx.trycloudflare.com)"
+              className="h-7 min-w-56 flex-1 rounded border bg-background px-2 font-mono text-[11px] focus:ring-1 focus:ring-ring focus:outline-none"
+            />
+          </div>
+        </Card>
+      )}
 
       {/* 2. Thẻ hiển thị chỉ dẫn / câu hỏi mới nhất từ nhân viên y tế (Chữ lớn + Trật tự VSL + Khung xương) */}
       <Card

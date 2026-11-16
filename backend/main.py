@@ -7,7 +7,9 @@ Giao diện người dùng (Kiosk Bệnh nhân & Dashboard Bác sĩ) đã đư�
 
 import json
 import os
+import socket
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -47,6 +49,7 @@ CLINIC_QUEUE: List[Dict] = []
 SERVED_COUNT: int = 0
 TICKET_COUNTER: int = 0
 DOCTOR_REPLIES: Dict[str, Dict] = {}
+SERVED_TICKETS: Dict[str, Dict] = {}
 
 # Đọc dataset.json để phục vụ chế độ demo các ca có sẵn & truy xuất keypoints .npy
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -102,6 +105,32 @@ def health():
             "checkpoint": str(ai_engine.checkpoint_path) if ai_engine.checkpoint_path else None,
             "device": str(ai_engine.device) if ai_engine.device else None
         }
+    }
+
+
+def _detect_lan_ip() -> Optional[str]:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/network-info")
+def api_network_info():
+    """Trả về địa chỉ IP mạng LAN của máy chủ để tạo mã QR cho điện thoại quét trực tiếp."""
+    return {
+        "lan_ip": _detect_lan_ip(),
     }
 
 
@@ -256,6 +285,14 @@ def api_confirm(req: ConfirmRequest):
         "confidence": req.confidence or 0.96,
         "semantic_frame": req.semantic_frame.model_dump() if hasattr(req.semantic_frame, "model_dump") else req.semantic_frame.dict(),
         "created_at": created_at,
+        "qr_pass_enabled": False,
+        "call_status": "waiting",
+        "assigned_room": None,
+        "called_at": None,
+        "called_at_ts": None,
+        "on_the_way_at": None,
+        "call_count": 0,
+        "call_vsl_text": None,
         "doctor_reply": None,
         "messages": [
             {
@@ -343,6 +380,16 @@ def _match_vsl_sample_id(message: str) -> Optional[str]:
 class VslSynthesizeRequest(BaseModel):
     text: str
     override_glosses: Optional[List[str]] = None
+
+
+class CallPatientRequest(BaseModel):
+    room_name: str = "Phòng Tiếp Nhận 1"
+    clinician_name: Optional[str] = "NV. Bàn Tiếp Nhận"
+    mode: str = "calling"  # "pre_alert" | "calling"
+
+
+class QrPassToggleRequest(BaseModel):
+    enabled: bool = True
 
 
 @app.get("/api/llm-status")
@@ -576,6 +623,173 @@ def api_patient_message(ticket_number: str, req: PatientMessageRequest):
     raise HTTPException(status_code=404, detail=f"Không tìm thấy phiếu {ticket_number}")
 
 
+@app.post("/api/queue/{ticket_number}/qr-pass")
+def api_toggle_qr_pass(ticket_number: str, req: QrPassToggleRequest):
+    """
+    Nhân viên tiếp nhận chủ động bật hoặc ẩn mã QR Thẻ Chờ Di Động trên màn hình Kiosk
+    (chỉ bật khi người bệnh có nhu cầu báo rung/nháy thay loa gọi tên).
+    """
+    for c in CLINIC_QUEUE:
+        if c["ticket_number"] == ticket_number:
+            c["qr_pass_enabled"] = bool(req.enabled)
+            return {
+                "success": True,
+                "ticket_number": ticket_number,
+                "qr_pass_enabled": c["qr_pass_enabled"],
+            }
+    raise HTTPException(status_code=404, detail=f"Không tìm thấy số phiếu {ticket_number}")
+
+
+@app.post("/api/queue/{ticket_number}/call")
+def api_call_patient(ticket_number: str, req: CallPatientRequest):
+    """
+    Nhân viên y tế / Bác sĩ kích hoạt gọi bệnh nhân vào phòng.
+    Gửi tín hiệu rung + nháy màn hình + hướng dẫn VSL trực tiếp tới Mobile Waiting Pass của bệnh nhân.
+    """
+    mode = req.mode if req.mode in ("pre_alert", "calling") else "calling"
+    room_name = (req.room_name or "").strip() or "Phòng Tiếp Nhận 1"
+    called_at = datetime.now().strftime("%H:%M:%S")
+    called_at_ts = time.time()
+
+    call_sentence = (
+        f"Sắp tới lượt bạn, vui lòng chuẩn bị vào {room_name}."
+        if mode == "pre_alert"
+        else f"Mời bạn vào {room_name}."
+    )
+    call_vsl_text = (
+        f"Sắp tới lượt · chuẩn bị · {room_name}"
+        if mode == "pre_alert"
+        else f"Đến lượt bạn · mời vào · {room_name}"
+    )
+
+    for c in CLINIC_QUEUE:
+        if c["ticket_number"] == ticket_number:
+            c["call_status"] = mode
+            c["assigned_room"] = room_name
+            c["called_at"] = called_at
+            c["called_at_ts"] = called_at_ts
+            c["on_the_way_at"] = None
+            c["call_count"] = int(c.get("call_count") or 0) + 1
+            c["call_vsl_text"] = call_vsl_text
+
+            msgs = c.setdefault("messages", [])
+            msgs.append({
+                "id": len(msgs) + 1,
+                "sender": "clinician",
+                "sender_name": req.clinician_name or "Hệ thống Gọi Số",
+                "text": call_sentence,
+                "vsl_text": call_vsl_text,
+                "category": "direction",
+                "send_vsl": False,
+                "timestamp": called_at,
+            })
+            return {
+                "success": True,
+                "ticket_number": ticket_number,
+                "call_status": c["call_status"],
+                "assigned_room": room_name,
+                "called_at": called_at,
+                "called_at_ts": called_at_ts,
+                "call_count": c["call_count"],
+                "call_vsl_text": call_vsl_text,
+            }
+
+    raise HTTPException(status_code=404, detail=f"Không tìm thấy số phiếu {ticket_number}")
+
+
+@app.post("/api/queue/{ticket_number}/on-the-way")
+def api_patient_on_the_way(ticket_number: str):
+    """
+    Bệnh nhân bấm xác nhận trên Mobile Waiting Pass ('Tôi đã thấy — Đang vào phòng'),
+    giúp Dashboard biết người bệnh đã nhận tín hiệu và không bấm nhảy qua lượt.
+    """
+    acked_at = datetime.now().strftime("%H:%M:%S")
+    for c in CLINIC_QUEUE:
+        if c["ticket_number"] == ticket_number:
+            room_name = c.get("assigned_room") or "phòng khám"
+            c["call_status"] = "on_the_way"
+            c["on_the_way_at"] = acked_at
+
+            ack_data = {
+                "action": "understood",
+                "note": f"Đã thấy thông báo gọi lượt — Đang vào {room_name}",
+                "acked_at": acked_at,
+            }
+            if c.get("doctor_reply"):
+                c["doctor_reply"]["patient_ack"] = ack_data
+            if ticket_number in DOCTOR_REPLIES:
+                DOCTOR_REPLIES[ticket_number]["patient_ack"] = ack_data
+
+            msgs = c.setdefault("messages", [])
+            msgs.append({
+                "id": len(msgs) + 1,
+                "sender": "patient",
+                "text": f"Tôi đã nhận tín hiệu gọi lượt và đang vào {room_name}.",
+                "vsl_text": f"Tôi · thấy rồi · đang đi vào · {room_name}",
+                "source": "ack",
+                "gloss_sequence": [],
+                "timestamp": acked_at,
+            })
+            return {
+                "success": True,
+                "ticket_number": ticket_number,
+                "call_status": "on_the_way",
+                "assigned_room": c.get("assigned_room"),
+                "on_the_way_at": acked_at,
+            }
+
+    raise HTTPException(status_code=404, detail=f"Không tìm thấy số phiếu {ticket_number}")
+
+
+@app.get("/api/ticket/{ticket_number}/status")
+def api_get_ticket_status(ticket_number: str):
+    """
+    Endpoint nhẹ cho Mobile Waiting Pass (quét QR từ Kiosk) theo dõi thứ tự và nhận lệnh rung gọi lượt.
+    """
+    norm_ticket = ticket_number.strip().upper()
+    for idx, c in enumerate(CLINIC_QUEUE):
+        if c["ticket_number"].upper() == norm_ticket:
+            is_emergency = (c.get("semantic_frame") or {}).get("intent") == IntentType.EMERGENCY.value
+            return {
+                "ticket_number": c["ticket_number"],
+                "patient_name": c.get("patient_name", "Bệnh nhân VSL"),
+                "call_status": c.get("call_status", "waiting"),
+                "assigned_room": c.get("assigned_room"),
+                "called_at": c.get("called_at"),
+                "called_at_ts": c.get("called_at_ts"),
+                "on_the_way_at": c.get("on_the_way_at"),
+                "call_count": c.get("call_count", 0),
+                "call_vsl_text": c.get("call_vsl_text"),
+                "people_ahead": idx,
+                "total_waiting": len(CLINIC_QUEUE),
+                "is_emergency": is_emergency,
+                "created_at": c.get("created_at"),
+                "specialty": (c.get("semantic_frame") or {}).get("specialty"),
+                "doctor_reply": c.get("doctor_reply"),
+            }
+
+    if norm_ticket in SERVED_TICKETS:
+        served = SERVED_TICKETS[norm_ticket]
+        return {
+            "ticket_number": served["ticket_number"],
+            "patient_name": served.get("patient_name", "Bệnh nhân VSL"),
+            "call_status": "served",
+            "assigned_room": served.get("assigned_room"),
+            "called_at": served.get("called_at"),
+            "called_at_ts": served.get("called_at_ts"),
+            "on_the_way_at": served.get("on_the_way_at"),
+            "call_count": served.get("call_count", 0),
+            "call_vsl_text": served.get("call_vsl_text"),
+            "people_ahead": 0,
+            "total_waiting": len(CLINIC_QUEUE),
+            "is_emergency": False,
+            "created_at": served.get("created_at"),
+            "doctor_reply": served.get("doctor_reply"),
+        }
+
+    raise HTTPException(status_code=404, detail=f"Không tìm thấy số phiếu {ticket_number}")
+
+
 @app.post("/api/queue/{ticket_number}/serve")
 def api_serve_ticket(ticket_number: str):
     """
@@ -584,6 +798,9 @@ def api_serve_ticket(ticket_number: str):
     global SERVED_COUNT
     for i, c in enumerate(CLINIC_QUEUE):
         if c["ticket_number"] == ticket_number:
+            served_copy = dict(c)
+            served_copy["call_status"] = "served"
+            SERVED_TICKETS[ticket_number.upper()] = served_copy
             CLINIC_QUEUE.pop(i)
             SERVED_COUNT += 1
             return {"success": True, "served_count": SERVED_COUNT}

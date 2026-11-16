@@ -1,4 +1,5 @@
 import type {
+  CallStatus,
   ConfirmPayload,
   ConfirmResponse,
   DialogueMessage,
@@ -9,6 +10,7 @@ import type {
   SampleKeypointsResponse,
   SampleScenario,
   SemanticFrame,
+  TicketStatusResponse,
   VslPreviewResponse,
   VslSynthesizeResponse,
 } from "@/lib/types"
@@ -27,6 +29,10 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   getHealth(): Promise<HealthResponse> {
     return requestJson<HealthResponse>("/health")
+  },
+
+  getNetworkInfo(): Promise<{ lan_ip: string | null }> {
+    return requestJson<{ lan_ip: string | null }>("/api/network-info")
   },
 
   getScenarios(): Promise<SampleScenario[]> {
@@ -134,6 +140,65 @@ export const api = {
       {
         method: "POST",
       },
+    )
+  },
+
+  setQrPassVisible(
+    ticketNumber: string,
+    enabled: boolean,
+  ): Promise<{ success: boolean; ticket_number: string; qr_pass_enabled: boolean }> {
+    return requestJson(
+      `/api/queue/${encodeURIComponent(ticketNumber)}/qr-pass`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      },
+    )
+  },
+
+  callPatient(
+    ticketNumber: string,
+    roomName: string,
+    mode: "pre_alert" | "calling" = "calling",
+  ): Promise<{
+    success: boolean
+    ticket_number: string
+    call_status: CallStatus
+    assigned_room: string
+    called_at: string
+    called_at_ts: number
+    call_count: number
+    call_vsl_text: string
+  }> {
+    return requestJson(
+      `/api/queue/${encodeURIComponent(ticketNumber)}/call`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_name: roomName, mode }),
+      },
+    )
+  },
+
+  confirmOnTheWay(ticketNumber: string): Promise<{
+    success: boolean
+    ticket_number: string
+    call_status: CallStatus
+    assigned_room?: string | null
+    on_the_way_at: string
+  }> {
+    return requestJson(
+      `/api/queue/${encodeURIComponent(ticketNumber)}/on-the-way`,
+      {
+        method: "POST",
+      },
+    )
+  },
+
+  getTicketStatus(ticketNumber: string): Promise<TicketStatusResponse> {
+    return requestJson<TicketStatusResponse>(
+      `/api/ticket/${encodeURIComponent(ticketNumber)}/status`,
     )
   },
 

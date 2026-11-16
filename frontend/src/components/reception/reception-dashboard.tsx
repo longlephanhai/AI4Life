@@ -3,7 +3,13 @@ import { ClinicalDetailPanel } from "@/components/reception/clinical-detail-pane
 import { QueuePanel } from "@/components/reception/queue-panel"
 import { StatCard } from "@/components/ui/stat-card"
 import { useToast } from "@/components/ui/toast"
-import { useDoctorReply, useQueue, useServeTicket } from "@/hooks/use-signbridge"
+import {
+  useCallPatient,
+  useDoctorReply,
+  useQueue,
+  useServeTicket,
+  useSetQrPassVisible,
+} from "@/hooks/use-signbridge"
 
 interface ReceptionDashboardProps {
   onSwitchToKiosk: () => void
@@ -13,6 +19,8 @@ export function ReceptionDashboard({ onSwitchToKiosk }: ReceptionDashboardProps)
   const { pushToast } = useToast()
   const queueQuery = useQueue()
   const replyMutation = useDoctorReply()
+  const qrPassMutation = useSetQrPassVisible()
+  const callMutation = useCallPatient()
   const serveMutation = useServeTicket()
 
   const cases = queueQuery.data?.cases ?? []
@@ -56,6 +64,47 @@ export function ReceptionDashboard({ onSwitchToKiosk }: ReceptionDashboardProps)
             title: `Đã gửi hướng dẫn tới phiếu ${ticketNumber}`,
             description: `Nội dung: "${message}"`,
             tone: "success",
+          })
+        },
+      },
+    )
+  }
+
+  const handleToggleQrPass = (ticketNumber: string, enabled: boolean) => {
+    qrPassMutation.mutate(
+      { ticketNumber, enabled },
+      {
+        onSuccess: () => {
+          pushToast({
+            title: enabled
+              ? `Đã hiện mã QR Thẻ Chờ cho phiếu ${ticketNumber}`
+              : `Đã ẩn mã QR Thẻ Chờ của phiếu ${ticketNumber}`,
+            description: enabled
+              ? "Người bệnh có thể quét mã QR trên màn hình Kiosk ngay bây giờ."
+              : "Màn hình Kiosk đã ẩn mã QR theo yêu cầu của nhân viên.",
+            tone: enabled ? "success" : "default",
+          })
+        },
+      },
+    )
+  }
+
+  const handleCallPatient = (
+    ticketNumber: string,
+    roomName: string,
+    mode: "pre_alert" | "calling" = "calling",
+  ) => {
+    callMutation.mutate(
+      { ticketNumber, roomName, mode },
+      {
+        onSuccess: () => {
+          pushToast({
+            title:
+              mode === "pre_alert"
+                ? `Đã báo chuẩn bị tới phiếu ${ticketNumber}`
+                : `Đang rung & nháy gọi phiếu ${ticketNumber}`,
+            description: `Điểm đến: ${roomName}`,
+            tone: mode === "pre_alert" ? "default" : "success",
           })
         },
       },
@@ -117,8 +166,12 @@ export function ReceptionDashboard({ onSwitchToKiosk }: ReceptionDashboardProps)
           <ClinicalDetailPanel
             selectedCase={selectedCase}
             isReplying={replyMutation.isPending}
+            isTogglingQrPass={qrPassMutation.isPending}
+            isCalling={callMutation.isPending}
             isServing={serveMutation.isPending}
             onSendQuickReply={handleSendReply}
+            onToggleQrPass={handleToggleQrPass}
+            onCallPatient={handleCallPatient}
             onServeCase={handleServeCase}
           />
         </div>

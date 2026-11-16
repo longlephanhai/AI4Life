@@ -1,19 +1,24 @@
 import * as React from "react"
 import {
+  AlertTriangle,
   ArrowRightCircle,
+  BellRing,
   Check,
   CheckCircle2,
   ClipboardList,
   Clock,
   CreditCard,
+  DoorOpen,
   Eye,
   Hand,
   HeartPulse,
   HelpCircle,
   MessageSquarePlus,
   Plus,
+  QrCode,
   Send,
   Siren,
+  Vibrate,
   X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -27,14 +32,33 @@ import {
 } from "@/hooks/use-signbridge"
 import type { QueueCase, VslSynthesizeResponse } from "@/lib/types"
 
+const DEFAULT_ROOM_OPTIONS = [
+  "Phòng Tiếp Nhận 1",
+  "Phòng Khám Nội 1 - Tầng 1",
+  "Phòng Khám Nội 2 - Tầng 1",
+  "Phòng Tai Mũi Họng - Tầng 2",
+  "Phòng Răng Hàm Mặt - Tầng 2",
+  "Phòng Mắt - Tầng 2",
+  "Phòng Cấp Cứu",
+  "Quầy Thu Ngân / BHYT",
+]
+
 interface ClinicalDetailPanelProps {
   selectedCase: QueueCase | null
   isReplying: boolean
+  isTogglingQrPass: boolean
+  isCalling: boolean
   isServing: boolean
   onSendQuickReply: (
     ticketNumber: string,
     message: string,
     options?: { overrideGlosses?: string[]; sendVsl?: boolean },
+  ) => void
+  onToggleQrPass: (ticketNumber: string, enabled: boolean) => void
+  onCallPatient: (
+    ticketNumber: string,
+    roomName: string,
+    mode?: "pre_alert" | "calling",
   ) => void
   onServeCase: (ticketNumber: string) => void
 }
@@ -42,8 +66,12 @@ interface ClinicalDetailPanelProps {
 export function ClinicalDetailPanel({
   selectedCase,
   isReplying,
+  isTogglingQrPass,
+  isCalling,
   isServing,
   onSendQuickReply,
+  onToggleQrPass,
+  onCallPatient,
   onServeCase,
 }: ClinicalDetailPanelProps) {
   const [customReply, setCustomReply] = React.useState("")
@@ -57,12 +85,49 @@ export function ClinicalDetailPanel({
   const [glossToAdd, setGlossToAdd] = React.useState("")
   const [previewAnimation, setPreviewAnimation] =
     React.useState<VslSynthesizeResponse | null>(null)
+  const [selectedRoom, setSelectedRoom] = React.useState("Phòng Tiếp Nhận 1")
+  const [elapsedSinceCallSec, setElapsedSinceCallSec] = React.useState(0)
 
   const glossListQuery = useVslGlosses()
   const previewVslMutation = usePreviewVsl()
   const synthesizePreviewMutation = useSynthesizeVsl()
   const latestReplyRef = React.useRef("")
   const previewSeqRef = React.useRef(0)
+
+  // Gợi ý tên phòng mặc định theo chuyên khoa hoặc phòng đã gọi gần nhất của ca đang chọn
+  React.useEffect(() => {
+    if (!selectedCase) return
+    if (selectedCase.assigned_room) {
+      setSelectedRoom(selectedCase.assigned_room)
+      return
+    }
+    const spec = selectedCase.semantic_frame.specialty
+    if (selectedCase.semantic_frame.intent === "emergency") {
+      setSelectedRoom("Phòng Cấp Cứu")
+    } else if (spec && spec !== "Tiếp nhận chung") {
+      setSelectedRoom(`Phòng Khám ${spec}`)
+    } else {
+      setSelectedRoom("Phòng Tiếp Nhận 1")
+    }
+  }, [selectedCase?.ticket_number, selectedCase?.assigned_room, selectedCase?.semantic_frame.intent, selectedCase?.semantic_frame.specialty])
+
+  // Đếm giây chờ phản hồi khi đang gọi bệnh nhân vào phòng
+  React.useEffect(() => {
+    if (selectedCase?.call_status !== "calling" || !selectedCase.called_at_ts) {
+      setElapsedSinceCallSec(0)
+      return
+    }
+    const updateElapsed = () => {
+      const diff = Math.max(
+        0,
+        Math.floor(Date.now() / 1000 - (selectedCase.called_at_ts ?? Date.now() / 1000)),
+      )
+      setElapsedSinceCallSec(diff)
+    }
+    updateElapsed()
+    const timer = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(timer)
+  }, [selectedCase?.call_status, selectedCase?.called_at_ts])
 
   // Tự động xem trước chuỗi Gloss VSL khi nhân viên gõ hoặc chọn mẫu câu
   React.useEffect(() => {
@@ -212,6 +277,147 @@ export function ClinicalDetailPanel({
             </div>
           </div>
         )}
+
+        {/* KHU VỰC GỌI LƯỢT KHÔNG ÂM THANH (TRÁNH BỎ LỠ LOA GỌI SỐ) */}
+        <div
+          className={`rounded-xl border-2 p-4 space-y-3 ${
+            selectedCase.call_status === "calling"
+              ? "border-amber-500/70 bg-amber-500/10"
+              : selectedCase.call_status === "on_the_way"
+                ? "border-emerald-500/60 bg-emerald-500/10"
+                : "border-primary/25 bg-primary/5"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Vibrate className="size-4 text-primary" aria-hidden />
+              <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                Thẻ Chờ QR &amp; Gọi Lượt Không Âm Thanh
+              </span>
+            </div>
+
+            {selectedCase.call_status === "calling" && (
+              <Badge variant="warning" className="tabular-nums animate-pulse">
+                Đang gọi ({elapsedSinceCallSec}s chưa xác nhận)
+              </Badge>
+            )}
+            {selectedCase.call_status === "on_the_way" && (
+              <Badge variant="success" className="gap-1">
+                <DoorOpen className="size-3.5" />
+                Đã thấy lúc {selectedCase.on_the_way_at} — Đang vào!
+              </Badge>
+            )}
+            {selectedCase.call_status === "pre_alert" && (
+              <Badge variant="secondary">Đã gửi báo chuẩn bị</Badge>
+            )}
+          </div>
+
+          {/* Nút cho phép nhân viên chủ động bật/tắt mã QR Thẻ Chờ trên Kiosk */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/80 px-3 py-2.5">
+            <div className="space-y-0.5">
+              <p className="text-xs font-semibold text-foreground">
+                Hiển thị mã QR Thẻ Chờ Di Động trên Kiosk
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Chỉ bật khi người bệnh điếc/nặng tai cần báo rung thay loa (mặc định tắt).
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={selectedCase.qr_pass_enabled ? "success" : "outline"}
+              loading={isTogglingQrPass}
+              onClick={() =>
+                onToggleQrPass(
+                  selectedCase.ticket_number,
+                  !selectedCase.qr_pass_enabled,
+                )
+              }
+              className="gap-1.5 font-semibold shrink-0"
+            >
+              <QrCode className="size-4" />
+              {selectedCase.qr_pass_enabled
+                ? "Đang hiện QR trên Kiosk (Bấm để ẩn)"
+                : "Hiện mã QR trên Kiosk"}
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              list="signbridge-room-options"
+              value={selectedRoom}
+              onChange={(e) => setSelectedRoom(e.target.value)}
+              placeholder="Nhập tên phòng khám..."
+              className="h-9 min-w-52 flex-1 rounded-md border bg-background px-3 text-sm font-medium focus:ring-2 focus:ring-ring focus:outline-none"
+            />
+            <datalist id="signbridge-room-options">
+              {DEFAULT_ROOM_OPTIONS.map((room) => (
+                <option key={room} value={room} />
+              ))}
+            </datalist>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isCalling || !selectedRoom.trim()}
+              onClick={() =>
+                onCallPatient(
+                  selectedCase.ticket_number,
+                  selectedRoom.trim(),
+                  "pre_alert",
+                )
+              }
+              className="h-9 gap-1.5 text-xs font-semibold"
+            >
+              <Clock className="size-3.5" />
+              Báo chuẩn bị
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              loading={isCalling}
+              disabled={!selectedRoom.trim()}
+              onClick={() =>
+                onCallPatient(
+                  selectedCase.ticket_number,
+                  selectedRoom.trim(),
+                  "calling",
+                )
+              }
+              className={`h-9 gap-1.5 font-bold ${
+                selectedCase.call_status === "calling"
+                  ? "bg-amber-600 text-white hover:bg-amber-700"
+                  : ""
+              }`}
+            >
+              <BellRing className="size-4" />
+              {selectedCase.call_status === "calling"
+                ? "Rung nhắc lại"
+                : "Gọi vào phòng (Rung ngay)"}
+            </Button>
+          </div>
+
+          {selectedCase.call_status === "calling" && elapsedSinceCallSec >= 45 && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                Đã quá <strong>{elapsedSinceCallSec} giây</strong> bệnh nhân chưa bấm xác nhận trên Thẻ Chờ — Vui lòng bấm{" "}
+                <strong>Rung nhắc lại</strong> hoặc cử nhân viên ra khu vực chờ hỗ trợ trực tiếp (tránh nhảy qua lượt).
+              </span>
+            </div>
+          )}
+
+          {selectedCase.call_status === "on_the_way" && (
+            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              Bệnh nhân đã xác nhận nhận được tín hiệu gọi vào{" "}
+              <strong>{selectedCase.assigned_room}</strong> — Xin vui lòng giữ lượt trong giây lát.
+            </p>
+          )}
+        </div>
 
         <div className="rounded-xl border bg-muted/40 p-4 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">

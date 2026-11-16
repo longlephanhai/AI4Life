@@ -119,6 +119,7 @@ export function CameraStage({
   const [recordDuration, setRecordDuration] = React.useState(0)
   const [darkSkeletonMode, setDarkSkeletonMode] = React.useState(false)
   const [isTrackerReady, setIsTrackerReady] = React.useState(false)
+  const [trackerError, setTrackerError] = React.useState<string | null>(null)
   const [trackedStats, setTrackedStats] = React.useState({
     pose: false,
     face: false,
@@ -463,10 +464,11 @@ export function CameraStage({
     })
   }, [])
 
-  // Chạy vòng lặp MediaPipe Holistic khi Camera bật
+  // Chạy vòng lặp MediaPipe Holistic (từ assets local /mediapipe/holistic/) khi Camera bật
   React.useEffect(() => {
     if (!isCameraOn) {
       setIsTrackerReady(false)
+      setTrackerError(null)
       setTrackedStats({ pose: false, face: false, leftHand: false, rightHand: false, totalPoints: 0 })
       const canvas = canvasRef.current
       if (canvas) {
@@ -478,40 +480,72 @@ export function CameraStage({
 
     let active = true
     let rafId = 0
+    let gotFirstResult = false
     let holisticInstance: InstanceType<NonNullable<Window["Holistic"]>> | null = null
+
+    const initTimeoutId = window.setTimeout(() => {
+      if (active && !gotFirstResult) {
+        setTrackerError("Khung xương preview chưa sẵn sàng (vẫn ghi hình gửi AI bình thường)")
+      }
+    }, 10000)
 
     const initAndRun = async () => {
       if (!window.Holistic) {
-        await new Promise<void>((resolve) => {
+        const ok = await new Promise<boolean>((resolve) => {
+          const existing = document.querySelector<HTMLScriptElement>(
+            'script[data-mediapipe-holistic="local"]',
+          )
+          if (existing) {
+            existing.addEventListener("load", () => resolve(true), { once: true })
+            existing.addEventListener("error", () => resolve(false), { once: true })
+            return
+          }
           const script = document.createElement("script")
-          script.src = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"
-          script.crossOrigin = "anonymous"
-          script.onload = () => resolve()
-          script.onerror = () => resolve()
+          script.src = "/mediapipe/holistic/holistic.js"
+          script.dataset.mediapipeHolistic = "local"
+          script.onload = () => resolve(true)
+          script.onerror = () => {
+            script.remove()
+            resolve(false)
+          }
           document.head.appendChild(script)
         })
+        if (!ok && active) {
+          setTrackerError("Không tải được bộ vẽ khung xương cục bộ (vẫn ghi hình bình thường)")
+          return
+        }
       }
 
       if (!active || !window.Holistic) return
 
-      holisticInstance = new window.Holistic({
-        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`,
-      })
+      try {
+        holisticInstance = new window.Holistic({
+          locateFile: (file: string) => `/mediapipe/holistic/${file}`,
+        })
 
-      holisticInstance.setOptions({
-        modelComplexity: 1,
-        smoothLandmarks: true,
-        enableSegmentation: false,
-        refineFaceLandmarks: false,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      })
+        holisticInstance.setOptions({
+          modelComplexity: 0,
+          smoothLandmarks: true,
+          enableSegmentation: false,
+          refineFaceLandmarks: false,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        })
 
-      holisticInstance.onResults((res: HolisticResults) => {
-        if (!active) return
-        setIsTrackerReady(true)
-        drawHolisticSkeleton(res)
-      })
+        holisticInstance.onResults((res: HolisticResults) => {
+          if (!active) return
+          gotFirstResult = true
+          window.clearTimeout(initTimeoutId)
+          setTrackerError(null)
+          setIsTrackerReady(true)
+          drawHolisticSkeleton(res)
+        })
+      } catch {
+        if (active) {
+          setTrackerError("Không khởi tạo được khung xương preview (vẫn ghi hình bình thường)")
+        }
+        return
+      }
 
       let busy = false
       const tick = async () => {
@@ -538,6 +572,7 @@ export function CameraStage({
 
     return () => {
       active = false
+      window.clearTimeout(initTimeoutId)
       if (rafId) window.cancelAnimationFrame(rafId)
       if (holisticInstance) {
         holisticInstance.close().catch(() => {})
@@ -831,6 +866,11 @@ export function CameraStage({
                     <span className="font-semibold text-red-600 dark:text-red-400">
                       Đang thu cử chỉ: 00:${String(recordDuration).padStart(2, "0")}s (Nghỉ 0.5s giữa các câu hoặc bấm Dừng)
                     </span>
+                  </>
+                ) : trackerError ? (
+                  <>
+                    <span className="size-2.5 rounded-full bg-amber-500" />
+                    <span className="text-amber-700 dark:text-amber-300">{trackerError}</span>
                   </>
                 ) : !isTrackerReady ? (
                   <>

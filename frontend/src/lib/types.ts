@@ -134,6 +134,13 @@ export interface VslSynthesizeResponse {
   frames: number[][]
 }
 
+export type CallStatus =
+  | "waiting"
+  | "pre_alert"
+  | "calling"
+  | "on_the_way"
+  | "served"
+
 export interface QueueCase {
   ticket_number: string
   patient_name: string
@@ -144,8 +151,34 @@ export interface QueueCase {
   confidence?: number
   semantic_frame: SemanticFrame
   created_at: string
+  qr_pass_enabled?: boolean
+  call_status?: CallStatus
+  assigned_room?: string | null
+  called_at?: string | null
+  called_at_ts?: number | null
+  on_the_way_at?: string | null
+  call_count?: number
+  call_vsl_text?: string | null
   doctor_reply?: DoctorReply | null
   messages?: DialogueMessage[]
+}
+
+export interface TicketStatusResponse {
+  ticket_number: string
+  patient_name: string
+  call_status: CallStatus
+  assigned_room?: string | null
+  called_at?: string | null
+  called_at_ts?: number | null
+  on_the_way_at?: string | null
+  call_count: number
+  call_vsl_text?: string | null
+  people_ahead: number
+  total_waiting: number
+  is_emergency: boolean
+  created_at?: string | null
+  specialty?: string | null
+  doctor_reply?: DoctorReply | null
 }
 
 export interface QueueResponse {

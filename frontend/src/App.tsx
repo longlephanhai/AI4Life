@@ -3,7 +3,17 @@ import { AnimatePresence, motion } from "motion/react"
 import { AppHeader, type AppViewMode } from "@/app/app-header"
 import { AppProviders } from "@/app/providers"
 import { KioskWorkspace } from "@/components/kiosk/kiosk-workspace"
+import { MobileWaitingPass } from "@/components/kiosk/mobile-waiting-pass"
 import { ReceptionDashboard } from "@/components/reception/reception-dashboard"
+
+function resolveTicketParam(): string | null {
+  const params = new URLSearchParams(window.location.search)
+  const queryTicket = params.get("ticket")?.trim()
+  if (queryTicket) return queryTicket.toUpperCase()
+
+  const match = window.location.pathname.match(/\/ticket\/([A-Za-z0-9_-]+)/i)
+  return match ? match[1].toUpperCase() : null
+}
 
 function resolveInitialMode(): AppViewMode {
   const path = window.location.pathname.toLowerCase()
@@ -13,10 +23,16 @@ function resolveInitialMode(): AppViewMode {
 
 export function App() {
   const [mode, setMode] = React.useState<AppViewMode>(resolveInitialMode)
+  const [ticketPassCode, setTicketPassCode] = React.useState<string | null>(
+    resolveTicketParam,
+  )
   const [isDark, setIsDark] = React.useState(false)
 
   React.useEffect(() => {
-    const onPopState = () => setMode(resolveInitialMode())
+    const onPopState = () => {
+      setTicketPassCode(resolveTicketParam())
+      setMode(resolveInitialMode())
+    }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
   }, [])
@@ -26,11 +42,31 @@ export function App() {
   }, [isDark])
 
   const handleModeChange = (nextMode: AppViewMode) => {
+    setTicketPassCode(null)
     setMode(nextMode)
     const targetPath = nextMode === "reception" ? "/reception" : "/kiosk"
-    if (window.location.pathname !== targetPath) {
+    if (window.location.pathname !== targetPath || window.location.search) {
       window.history.pushState({}, "", targetPath)
     }
+  }
+
+  const handleBackFromTicketPass = () => {
+    setTicketPassCode(null)
+    setMode("kiosk")
+    window.history.pushState({}, "", "/kiosk")
+  }
+
+  if (ticketPassCode) {
+    return (
+      <AppProviders>
+        <div className="min-h-dvh bg-background px-2 py-3 text-foreground sm:px-4">
+          <MobileWaitingPass
+            ticketNumber={ticketPassCode}
+            onBackToKiosk={handleBackFromTicketPass}
+          />
+        </div>
+      </AppProviders>
+    )
   }
 
   return (

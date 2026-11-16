@@ -10,6 +10,14 @@ export function useHealth() {
   })
 }
 
+export function useNetworkInfo() {
+  return useQuery({
+    queryKey: ["network-info"],
+    queryFn: () => api.getNetworkInfo(),
+    staleTime: 60000,
+  })
+}
+
 export function useScenarios() {
   return useQuery({
     queryKey: ["scenarios"],
@@ -134,6 +142,62 @@ export function useServeTicket() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["queue"] })
     },
+  })
+}
+
+export function useSetQrPassVisible() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      ticketNumber,
+      enabled,
+    }: {
+      ticketNumber: string
+      enabled: boolean
+    }) => api.setQrPassVisible(ticketNumber, enabled),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["queue"] })
+      void qc.invalidateQueries({ queryKey: ["ticket-status", vars.ticketNumber] })
+    },
+  })
+}
+
+export function useCallPatient() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      ticketNumber,
+      roomName,
+      mode = "calling",
+    }: {
+      ticketNumber: string
+      roomName: string
+      mode?: "pre_alert" | "calling"
+    }) => api.callPatient(ticketNumber, roomName, mode),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["queue"] })
+      void qc.invalidateQueries({ queryKey: ["ticket-status", vars.ticketNumber] })
+    },
+  })
+}
+
+export function useConfirmOnTheWay() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ticketNumber: string) => api.confirmOnTheWay(ticketNumber),
+    onSuccess: (_data, ticketNumber) => {
+      void qc.invalidateQueries({ queryKey: ["queue"] })
+      void qc.invalidateQueries({ queryKey: ["ticket-status", ticketNumber] })
+    },
+  })
+}
+
+export function useTicketStatus(ticketNumber: string | null) {
+  return useQuery({
+    queryKey: ["ticket-status", ticketNumber],
+    queryFn: () => api.getTicketStatus(ticketNumber!),
+    enabled: Boolean(ticketNumber),
+    refetchInterval: 1500,
   })
 }
 

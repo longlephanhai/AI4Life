@@ -17,6 +17,7 @@ import {
 import {
   useAcknowledgeDoctorReply,
   useConfirmCase,
+  useConfirmOnTheWay,
   useParseSemantic,
   useQueue,
   useRecognizeVideo,
@@ -37,6 +38,7 @@ export function KioskWorkspace() {
   const sampleKeypointsMutation = useSampleKeypoints()
   const confirmMutation = useConfirmCase()
   const ackMutation = useAcknowledgeDoctorReply()
+  const onTheWayMutation = useConfirmOnTheWay()
   const sendPatientMsgMutation = useSendPatientMessage()
 
   const [isManuallyEdited, setIsManuallyEdited] = React.useState(false)
@@ -705,11 +707,27 @@ export function KioskWorkspace() {
           ticketNumber={activeTicket}
           messages={activeCase?.messages ?? []}
           doctorReply={doctorReply}
+          qrPassEnabled={activeCase?.qr_pass_enabled ?? false}
+          callStatus={activeCase?.call_status}
+          assignedRoom={activeCase?.assigned_room}
+          callVslText={activeCase?.call_vsl_text}
           showVslOrder={showVslOrder}
           isAcking={ackMutation.isPending}
+          isConfirmingOnTheWay={onTheWayMutation.isPending}
           isSendingMessage={sendPatientMsgMutation.isPending}
           isAnalyzingVideo={recognizeMutation.isPending}
           onAcknowledge={handleAcknowledge}
+          onConfirmOnTheWay={() =>
+            onTheWayMutation.mutate(activeTicket, {
+              onSuccess: () => {
+                pushToast({
+                  title: "Đã báo bác sĩ bạn đang vào phòng",
+                  description: "Bác sĩ sẽ giữ lượt cho bạn.",
+                  tone: "success",
+                })
+              },
+            })
+          }
           onSendPatientMessage={handleSendDialogueMessage}
           onRecognizeVideo={(file) => recognizeMutation.mutateAsync(file)}
           onResetKiosk={handleResetKiosk}
