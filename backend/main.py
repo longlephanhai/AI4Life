@@ -329,7 +329,8 @@ def api_get_queue():
         "total_cases": len(CLINIC_QUEUE),
         "served_count": SERVED_COUNT,
         "cases": CLINIC_QUEUE,
-        "doctor_replies": DOCTOR_REPLIES
+        "doctor_replies": DOCTOR_REPLIES,
+        "served_tickets": list(SERVED_TICKETS.keys()),
     }
 
 

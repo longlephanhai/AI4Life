@@ -186,6 +186,7 @@ export interface QueueResponse {
   served_count: number
   cases: QueueCase[]
   doctor_replies?: Record<string, DoctorReply>
+  served_tickets?: string[]
 }
 
 export interface ConfirmPayload {

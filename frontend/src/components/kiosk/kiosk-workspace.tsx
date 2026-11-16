@@ -435,26 +435,35 @@ export function KioskWorkspace() {
     )
   }
 
+  const resetKioskState = React.useCallback(
+    (toastInfo?: { title: string; description: string; tone?: "default" | "success" }) => {
+      setActiveTicket(null)
+      setIsManuallyEdited(false)
+      setSamplePlaybackData(null)
+      setGlosses([])
+      setTranslation("")
+      setVslText(null)
+      setConfidence(0)
+      setFrame(null)
+      setCapturedClauses([])
+      setIsAppendingClause(false)
+      setIsRecognized(true)
+      setRecognitionStatus("recognized")
+      setFallbackMessage(null)
+      setForceShowFallback(false)
+      sessionStorage.removeItem("vsl_active_ticket")
+      pushToast(
+        toastInfo ?? {
+          title: "Sẵn sàng đón lượt khám mới",
+          description: "Màn hình Kiosk đã trở về chế độ Khai báo ban đầu.",
+        },
+      )
+    },
+    [pushToast],
+  )
+
   const handleResetKiosk = () => {
-    setActiveTicket(null)
-    setIsManuallyEdited(false)
-    setSamplePlaybackData(null)
-    setGlosses([])
-    setTranslation("")
-    setVslText(null)
-    setConfidence(0)
-    setFrame(null)
-    setCapturedClauses([])
-    setIsAppendingClause(false)
-    setIsRecognized(true)
-    setRecognitionStatus("recognized")
-    setFallbackMessage(null)
-    setForceShowFallback(false)
-    sessionStorage.removeItem("vsl_active_ticket")
-    pushToast({
-      title: "Sẵn sàng đón lượt khám mới",
-      description: "Màn hình Kiosk đã trở về chế độ Khai báo ban đầu.",
-    })
+    resetKioskState()
   }
 
   const activeCase = React.useMemo(
@@ -465,6 +474,43 @@ export function KioskWorkspace() {
         : null,
     [activeTicket, queueQuery.data?.cases],
   )
+
+  const seenActiveTicketInQueueRef = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    if (!activeTicket) {
+      seenActiveTicketInQueueRef.current = null
+      return
+    }
+    if (activeCase) {
+      seenActiveTicketInQueueRef.current = activeTicket
+      return
+    }
+    if (!queueQuery.isSuccess) return
+
+    const isServed = Boolean(
+      queueQuery.data?.served_tickets?.includes(activeTicket.toUpperCase()),
+    )
+    const disappearedAfterSeen =
+      seenActiveTicketInQueueRef.current === activeTicket
+
+    if (isServed || disappearedAfterSeen) {
+      const finishedTicket = activeTicket
+      seenActiveTicketInQueueRef.current = null
+      resetKioskState({
+        title: `Đã hoàn tất tiếp nhận phiếu ${finishedTicket}`,
+        description:
+          "Màn hình Kiosk đã tự động quay về trang bắt đầu để đón người tiếp theo.",
+        tone: "success",
+      })
+    }
+  }, [
+    activeTicket,
+    activeCase,
+    queueQuery.isSuccess,
+    queueQuery.data?.served_tickets,
+    resetKioskState,
+  ])
 
   const doctorReply =
     activeCase?.doctor_reply ??
