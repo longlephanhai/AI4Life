@@ -103,6 +103,8 @@ def health():
         "ai_engine": {
             "is_ready": ai_engine.is_ready,
             "checkpoint": str(ai_engine.checkpoint_path) if ai_engine.checkpoint_path else None,
+            "ood_bank_loaded": ai_engine.ood_bank_feats is not None,
+            "ood_bank_path": str(ai_engine.ood_bank_path) if ai_engine.ood_bank_path else None,
             "device": str(ai_engine.device) if ai_engine.device else None
         }
     }

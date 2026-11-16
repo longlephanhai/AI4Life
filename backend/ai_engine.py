@@ -26,6 +26,11 @@ CHECKPOINT_CANDIDATES = [
     AI_DIR / "checkpoint_best.pt",
     BASE_DIR / "checkpoint_best.pt",
 ]
+OOD_BANK_CANDIDATES = [
+    BASE_DIR / "model" / "ood_reference_bank.pt",
+    BASE_DIR / "models" / "ood_reference_bank.pt",
+    AI_DIR / "checkpoints" / "ood_reference_bank.pt",
+]
 
 CONFIG_PATH = AI_DIR / "source" / "config" / "config_phase2.yaml"
 TRANS_VOCAB_PATH = AI_DIR / "data" / "trans_vocab.txt"
@@ -60,6 +65,9 @@ class VSLInferenceEngine:
         self.gloss_vocab = None
         self.cfg = None
         self.checkpoint_path = None
+        self.ood_bank_path = None
+        self.ood_bank_feats = None
+        self.ood_bank_trans = None
         self.is_ready = False
         
         self._check_and_load()
@@ -69,6 +77,45 @@ class VSLInferenceEngine:
             if p.exists() and p.stat().st_size > 1000:
                 return p
         return None
+
+    def _find_ood_bank(self) -> Optional[Path]:
+        for p in OOD_BANK_CANDIDATES:
+            if p.exists() and p.stat().st_size > 1000:
+                return p
+        return None
+
+    def _load_ood_bank(self) -> None:
+        """Nạp Feature Bank tham chiếu (ood_reference_bank.pt) phục vụ kiểm định OOD."""
+        bank_path = self._find_ood_bank()
+        if not bank_path or self.device is None:
+            return
+        try:
+            import torch
+            import torch.nn.functional as F
+
+            bank = torch.load(str(bank_path), map_location=self.device, weights_only=False)
+            feats = bank.get("feats")
+            trans = bank.get("trans")
+            if feats is None or trans is None or len(feats) != len(trans):
+                logger.warning(f"[AI Engine] File OOD bank không hợp lệ: {bank_path}")
+                return
+
+            bank_norm_ver = bank.get("norm_version")
+            if bank_norm_ver is not None and bank_norm_ver != getattr(self, "norm_version", 2):
+                logger.warning(
+                    f"[AI Engine] OOD bank norm_version={bank_norm_ver} lệch với model norm_version={self.norm_version}, bỏ qua."
+                )
+                return
+
+            self.ood_bank_feats = F.normalize(feats.float().to(self.device), dim=-1)
+            self.ood_bank_trans = [self._normalize_clause_key(t) for t in trans]
+            self.ood_bank_path = bank_path
+            logger.info(f"[AI Engine] Đã nạp OOD Feature Bank ({len(self.ood_bank_trans)} mẫu) từ: {bank_path}")
+        except Exception as exc:
+            logger.warning(f"[AI Engine] Không thể nạp OOD Feature Bank: {exc}")
+            self.ood_bank_feats = None
+            self.ood_bank_trans = None
+            self.ood_bank_path = None
 
     def _check_and_load(self):
         ckpt_path = self._find_checkpoint()
@@ -132,12 +179,47 @@ class VSLInferenceEngine:
             self.model.eval()
 
             self.checkpoint_path = ckpt_path
+            self._load_ood_bank()
             self.is_ready = True
             logger.info(">>> [AI Engine] ĐÃ NẠP MÔ HÌNH THÀNH CÔNG VÀO HỆ THỐNG! <<<")
 
         except Exception as e:
             logger.warning(f"[AI Engine] Không thể khởi tạo mô hình PyTorch: {e}. Hệ thống sẽ dùng chế độ an toàn.")
             self.is_ready = False
+
+    def _extract_ood_feature(self, memory):
+        """Rút trích vector đặc trưng 3072 chiều (8 đoạn mean + 4 đoạn std) từ Encoder memory."""
+        import torch
+        import torch.nn.functional as F
+
+        mem = memory[0]  # (T, d_model)
+        t8 = torch.cat([c.mean(dim=0) for c in torch.tensor_split(mem, 8, dim=0)], dim=0)
+        s4 = torch.cat([c.std(dim=0, unbiased=False) for c in torch.tensor_split(mem, 4, dim=0)], dim=0)
+        feat = torch.cat([t8, s4], dim=0).float()
+        return F.normalize(feat, dim=0)
+
+    def _score_ood_bank(self, memory, top_k: int = 5) -> Optional[dict]:
+        """So khớp vector Encoder với Feature Bank tham chiếu (Cosine Similarity)."""
+        if self.ood_bank_feats is None or self.ood_bank_trans is None:
+            return None
+        import torch
+
+        feat = self._extract_ood_feature(memory)
+        if feat.shape[0] != self.ood_bank_feats.shape[1]:
+            return None
+
+        sims = torch.matmul(self.ood_bank_feats, feat)
+        top_vals, top_idxs = torch.topk(sims, k=min(top_k, len(sims)))
+        candidates: List[str] = []
+        for idx in top_idxs.tolist():
+            cand = self.ood_bank_trans[idx]
+            if cand and cand not in candidates:
+                candidates.append(cand)
+        return {
+            "max_sim": float(top_vals[0].item()),
+            "top_mean_sim": float(top_vals.mean().item()),
+            "top_candidates": candidates,
+        }
 
     def _predict_single_window(self, frames_kp) -> dict:
         """
@@ -225,10 +307,17 @@ class VSLInferenceEngine:
                 return_probs=True,
             )
 
+            # 5b. Kiểm định phân phối đặc trưng bằng OOD Feature Bank
+            ood_info = self._score_ood_bank(memory, top_k=5)
+
         token_probs = batch_probs[0] if batch_probs else []
         avg_prob = float(np.mean(token_probs)) if token_probs else 0.0
+        hyp = self.trans_vocab.decode(preds[0].tolist())
+        hyp_norm = self._normalize_clause_key(" ".join(hyp))
+        ood_sim = ood_info["max_sim"] if ood_info else None
+        ood_matches = ood_info["top_candidates"][:3] if ood_info else []
 
-        # 6. Chặn Out-of-Vocabulary (nới lỏng ngưỡng OOD từ 0.55 xuống 0.38 để phù hợp người thật)
+        # 6. Chặn Out-of-Vocabulary: kết hợp Softmax + Feature Bank để chống tự tin ảo
         if avg_prob < 0.38:
             conf = round(avg_prob, 2)
             return {
@@ -238,9 +327,33 @@ class VSLInferenceEngine:
                 "gloss_sequence": [],
                 "translation": "",
                 "confidence": conf,
+                "ood_similarity": round(ood_sim, 3) if ood_sim is not None else None,
+                "ood_top_matches": ood_matches,
             }
 
-        # 7. Tính độ tin cậy tổng hợp
+        if ood_info is not None:
+            in_top_bank = bool(hyp_norm and hyp_norm in ood_info["top_candidates"])
+            logger.info(
+                f"[AI Engine] OOD check: ood_sim={ood_sim:.3f}, avg_prob={avg_prob:.3f}, "
+                f"in_top5={in_top_bank}, hyp='{hyp_norm}', top1='{ood_matches[0] if ood_matches else ''}'"
+            )
+            # Ngưỡng cân bằng cho webcam thực tế:
+            # - Chặn cứng khi vector lệch hẳn khỏi phân phối mẫu chuẩn (< 0.64)
+            # - Hoặc ở vùng ranh giới (< 0.70) mà câu Decoder không khớp Top-5 láng giềng trong bank
+            if ood_sim < 0.64 or (ood_sim < 0.70 and not in_top_bank):
+                conf = round(min(avg_prob, ood_sim * 0.8), 3)
+                return {
+                    "is_recognized": False,
+                    "recognition_status": "out_of_vocabulary",
+                    "fallback_message": "Cử chỉ nằm ngoài phạm vi bộ câu y tế đã học hoặc chưa đủ độ tương đồng. Vui lòng thử lại rõ ràng hơn hoặc dùng bảng chọn bên dưới.",
+                    "gloss_sequence": [],
+                    "translation": "",
+                    "confidence": conf,
+                    "ood_similarity": round(ood_sim, 3),
+                    "ood_top_matches": ood_matches,
+                }
+
+        # 7. Tính độ tin cậy tổng hợp (giữ thang điểm ổn định cho cả sliding window)
         effective_ctc = ctc_conf if len(glosses) > 0 else avg_prob
         confidence = round(0.4 * effective_ctc + 0.6 * avg_prob, 3)
 
@@ -253,9 +366,10 @@ class VSLInferenceEngine:
                 "gloss_sequence": glosses,
                 "translation": "",
                 "confidence": confidence,
+                "ood_similarity": round(ood_sim, 3) if ood_sim is not None else None,
+                "ood_top_matches": ood_matches,
             }
 
-        hyp = self.trans_vocab.decode(preds[0].tolist())
         translation = re.sub(r"\s+([.?!,])", r"\1", " ".join(hyp)).strip().capitalize()
         words = [w for w in hyp if w not in [".", "?", ",", "!"]]
 
@@ -306,6 +420,8 @@ class VSLInferenceEngine:
             "gloss_sequence": glosses,
             "translation": translation,
             "confidence": confidence,
+            "ood_similarity": round(ood_sim, 3) if ood_sim is not None else None,
+            "ood_top_matches": ood_matches,
         }
 
     def _split_by_pauses(
@@ -557,6 +673,8 @@ class VSLInferenceEngine:
                 "has_left_hand": bool(np.abs(lhand).sum() > 0),
                 "has_right_hand": bool(np.abs(rhand).sum() > 0),
                 "clauses": res.get("clauses"),
+                "ood_similarity": res.get("ood_similarity"),
+                "ood_top_matches": res.get("ood_top_matches"),
             }
             return res
         except Exception as e:
